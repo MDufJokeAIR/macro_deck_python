@@ -1,0 +1,8 @@
+{
+  "package_id": "builtin.system_variables",
+  "name": "System Variables",
+  "version": "1.0.0",
+  "author": "MacroDeck",
+  "description": "CPU, RAM, time and date variables",
+  "target_api_version": 20
+}

@@ -1,0 +1,16 @@
+README.md
+pyproject.toml
+setup.py
+macro_deck.egg-info/PKG-INFO
+macro_deck.egg-info/SOURCES.txt
+macro_deck.egg-info/dependency_links.txt
+macro_deck.egg-info/entry_points.txt
+macro_deck.egg-info/requires.txt
+macro_deck.egg-info/top_level.txt
+macro_deck_python/__init__.py
+macro_deck_python/__main__.py
+tests/test_all.py
+tests/test_integration.py
+tests/test_keyboard_macro.py
+tests/test_macro_keys.py
+tests/test_sdk.py

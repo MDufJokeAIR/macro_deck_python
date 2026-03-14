@@ -1,0 +1,16 @@
+# Core
+websockets>=12.0
+aiohttp>=3.9.0
+
+# Optional – system tray icon (Windows/macOS/Linux)
+pystray>=0.19.4
+Pillow>=10.0.0
+
+# Optional – keyboard/mouse automation (built-in keyboard plugin)
+pyautogui>=0.9.54
+
+# Optional – system variable monitoring
+psutil>=5.9.0
+
+# Cryptography for PluginCredentials encrypted storage
+cryptography>=41.0.0

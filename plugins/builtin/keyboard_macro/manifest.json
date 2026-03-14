@@ -1,0 +1,8 @@
+{
+  "package_id": "builtin.keyboard_macro",
+  "name": "Keyboard Macro",
+  "version": "1.0.0",
+  "author": "MacroDeck",
+  "description": "Inject keyboard macros (1–5 keys): short press, long press, double-click, hold/release, sequence. Windows/macOS/Linux.",
+  "target_api_version": 20
+}

@@ -1,0 +1,239 @@
+# Macro Deck — Python Rewrite
+
+A complete Python port of the [Macro Deck](https://github.com/Macro-Deck-App/Macro-Deck) C# server.  
+Transforms any phone, tablet, or browser into a programmable macro pad.
+
+---
+
+## Architecture
+
+```
+macro_deck_python/
+├── __main__.py              # Entry point — boots all services
+├── core/
+│   └── config_manager.py    # App-wide settings  (~/.macro_deck/config.json)
+├── models/
+│   ├── variable.py          # Variable + VariableType (Integer/Float/String/Bool)
+│   ├── action_button.py     # ActionButton, ActionEntry, Condition
+│   └── profile.py           # Profile, Folder (unlimited nesting)
+├── services/
+│   ├── variable_manager.py  # Thread-safe CRUD, persistence, change callbacks
+│   ├── profile_manager.py   # Profile CRUD, per-client profile routing
+│   ├── action_executor.py   # Runs plugin actions in background threads
+│   ├── extension_store.py   # Fetches/installs/uninstalls plugins and icon packs
+│   └── update_service.py    # Polls GitHub releases for updates
+├── plugins/
+│   ├── base.py              # IMacroDeckPlugin, PluginAction, PluginConfiguration, PluginCredentials
+│   ├── plugin_manager.py    # Dynamic loader — discovers plugins from a directory
+│   └── builtin/
+│       ├── keyboard_plugin/ # Hotkey, TypeText, KeyPress actions  (pyautogui)
+│       └── system_variables/# CPU, RAM, time, date variables  (psutil)
+├── websocket/
+│   ├── protocol.py          # JSON message encode/decode
+│   └── server.py            # Async WebSocket server  (websockets lib)
+├── gui/
+│   ├── web_config.py        # aiohttp REST API + single-page admin UI
+│   └── tray.py              # System tray icon  (pystray + Pillow)
+└── utils/
+    ├── logger.py            # MacroDeckLogger — file + console, 4 levels
+    ├── template.py          # {variable_name} label rendering
+    ├── condition.py         # Variable condition evaluator (==, !=, >, <, >=, <=)
+    └── folder_utils.py      # BFS folder lookup
+```
+
+---
+
+## Install
+
+**Recommended: Use a virtual environment (cleanest, avoids system conflicts):**
+
+```bash
+cd /path/to/MacroDeck_py
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+pip install --upgrade pip setuptools wheel
+pip install websockets aiohttp pystray Pillow pyautogui psutil
+python3 -m macro_deck_python
+```
+
+**Alternative: Core only (WebSocket server, no GUI/keyboard/system tray)**
+
+```bash
+pip install websockets
+python3 -m macro_deck_python --no-gui --no-tray
+```
+
+---
+
+## Run
+
+```bash
+python3 -m macro_deck_python
+
+# With options
+python3 -m macro_deck_python --port 8191 --config-port 8192 --log-level DEBUG
+
+# Headless (no tray, no web UI)
+python3 -m macro_deck_python --no-tray --no-gui
+```
+
+**Access the web UI:**
+- Same machine: `http://localhost:8192`
+- From phone/tablet on network: `http://<your-ip>:8192` (e.g., `192.168.1.50:8192`)
+
+**Connect native Macro Deck client:**  
+`ws://<your-ip>:8191`
+
+---
+
+## CLI Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--port` | 8191 | WebSocket listen port |
+| `--config-port` | 8192 | Web config UI port |
+| `--host` | 0.0.0.0 | Bind address |
+| `--no-tray` | — | Disable system tray icon |
+| `--no-gui` | — | Disable web config UI |
+| `--no-updates` | — | Disable update checker |
+| `--plugins-dir` | `~/.macro_deck/plugins` | Custom plugins directory |
+| `--log-level` | INFO | DEBUG / INFO / WARNING / ERROR |
+
+---
+
+## WebSocket Protocol
+
+All messages are JSON with a `method` field.
+
+### Client to Server
+
+| Method | Required fields | Description |
+|--------|----------------|-------------|
+| `CONNECT` | `device_type`, `api_version` | Identify the client |
+| `BUTTON_PRESS` | `position` or `button_id` | Trigger a button |
+| `GET_BUTTONS` | `folder_id` (optional) | Fetch the button layout |
+| `GET_PROFILES` | — | List all profiles |
+| `SET_PROFILE` | `profile_id` | Switch active profile |
+| `GET_VARIABLES` | — | Fetch all variables |
+| `SET_VARIABLE` | `name`, `value`, `type` | Create or update a variable |
+| `GET_CONNECTED_CLIENTS` | — | List connected clients |
+| `PING` | — | Keepalive |
+
+### Server to Client
+
+| Method | Description |
+|--------|-------------|
+| `CONNECTED` | Sent on connect, includes `client_id` |
+| `BUTTONS` | Full layout for a folder |
+| `PROFILES` | Profile list and active id |
+| `VARIABLES` | All variables |
+| `VARIABLE_CHANGED` | Pushed whenever any variable changes |
+| `BUTTON_STATE` | Pushed after a button state changes |
+| `CONNECTED_CLIENTS` | List of all clients |
+| `PONG` | Response to PING |
+| `UPDATE_AVAILABLE` | New version available |
+| `ERROR` | Error message |
+
+---
+
+## Variables
+
+Stored in `~/.macro_deck/variables.json`.
+
+| Type | Python type | Example |
+|------|-------------|---------|
+| `Integer` | `int` | `42` |
+| `Float` | `float` | `72.4` |
+| `String` | `str` | `"Gaming"` |
+| `Bool` | `bool` | `True` |
+
+**Labels:** `CPU: {system_cpu_percent:.1f}%` renders as `CPU: 45.2%`  
+**State binding:** set `state_binding = "is_live"` on a button — its on/off tracks that Bool variable.  
+**Conditions:** `variable == value` with operators `==  !=  >  <  >=  <=`
+
+---
+
+## Writing a Plugin
+
+Create `~/.macro_deck/plugins/your_name.your_plugin/` with:
+
+**`manifest.json`**
+```json
+{
+  "package_id": "your_name.your_plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "author": "You",
+  "description": "Does something cool",
+  "target_api_version": 20
+}
+```
+
+**`main.py`**
+```python
+from macro_deck_python.plugins.base import IMacroDeckPlugin, PluginAction
+from macro_deck_python.models.variable import VariableType
+from macro_deck_python.services.variable_manager import VariableManager
+import json
+
+class VolumeUpAction(PluginAction):
+    action_id = "volume_up"
+    name = "Volume Up"
+    description = "Increases system volume"
+    can_configure = True
+
+    def trigger(self, client_id: str, action_button) -> None:
+        cfg = json.loads(self.configuration) if self.configuration else {}
+        step = cfg.get("step", 5)
+        current = VariableManager.get_value("volume") or 0
+        VariableManager.set_value(
+            "volume", min(100, int(current) + step),
+            VariableType.INTEGER, self.plugin.package_id
+        )
+
+class Main(IMacroDeckPlugin):
+    package_id = "your_name.your_plugin"
+    name = "My Plugin"
+    version = "1.0.0"
+    author = "You"
+    description = "Does something cool"
+
+    def enable(self):
+        self.actions = [VolumeUpAction()]
+```
+
+**Save plugin config:**
+```python
+from macro_deck_python.plugins.base import PluginConfiguration
+PluginConfiguration.set_value(self, "api_key", "abc123")
+key = PluginConfiguration.get_value(self, "api_key")
+```
+
+**Save credentials:**
+```python
+from macro_deck_python.plugins.base import PluginCredentials
+PluginCredentials.set_credentials(self, {"username": "u", "password": "p"})
+creds = PluginCredentials.get_plugin_credentials(self)
+```
+
+---
+
+## Data Files
+
+| Path | Contents |
+|------|----------|
+| `~/.macro_deck/config.json` | App settings |
+| `~/.macro_deck/profiles.json` | All profiles, folders, buttons |
+| `~/.macro_deck/variables.json` | All persisted variables |
+| `~/.macro_deck/plugins/<id>/` | Plugin directory |
+| `~/.macro_deck/plugins/<id>/manifest.json` | Plugin metadata |
+| `~/.macro_deck/plugins/<id>/config.json` | Plugin key-value config |
+| `~/.macro_deck/icons/<id>/` | Icon pack directory |
+| `~/.macro_deck/logs/macro_deck_YYYY-MM-DD.log` | Log files |
+
+---
+
+## License
+
+Apache 2.0 — same as the original Macro Deck project.

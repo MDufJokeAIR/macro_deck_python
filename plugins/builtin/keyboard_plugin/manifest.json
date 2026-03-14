@@ -1,0 +1,8 @@
+{
+  "package_id": "builtin.keyboard",
+  "name": "Keyboard",
+  "version": "1.0.0",
+  "author": "MacroDeck",
+  "description": "Built-in keyboard / hotkey actions",
+  "target_api_version": 20
+}

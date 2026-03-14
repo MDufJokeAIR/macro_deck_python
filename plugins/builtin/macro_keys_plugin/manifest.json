@@ -1,0 +1,8 @@
+{
+  "package_id": "builtin.macro_keys",
+  "name": "Macro Keys",
+  "version": "1.0.0",
+  "author": "MacroDeck",
+  "description": "Inject keyboard macros (1–5 keys), short/long/double press, F1–F24, OEM, media, browser keys",
+  "target_api_version": 20
+}

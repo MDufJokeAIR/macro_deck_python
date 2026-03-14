@@ -1,0 +1,8 @@
+{
+  "package_id": "builtin.obs",
+  "name": "OBS Studio",
+  "version": "1.0.0",
+  "author": "MacroDeck",
+  "description": "Control OBS Studio via WebSocket (requires obsws_python)",
+  "target_api_version": 20
+}

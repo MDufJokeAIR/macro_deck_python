@@ -1,0 +1,8 @@
+{
+  "package_id": "builtin.commands",
+  "name": "Commands",
+  "version": "1.0.0",
+  "author": "MacroDeck",
+  "description": "Run commands, open URLs, delay, toggle/set variables",
+  "target_api_version": 20
+}
