@@ -20,6 +20,7 @@ except ImportError:
 
 from macro_deck_python.core.config_manager import ConfigManager
 from macro_deck_python.gui.pad_client import get_pad_html
+from macro_deck_python.gui.editor_client import get_editor_html
 from macro_deck_python.models.action_button import ActionButton, ActionEntry
 from macro_deck_python.models.profile import Profile, Folder
 from macro_deck_python.models.variable import Variable, VariableType
@@ -251,6 +252,8 @@ def create_app() -> "web.Application":
     if _STATIC_DIR.exists():
         app.router.add_static("/static", _STATIC_DIR)
     app.router.add_get("/api/info", api_info)
+    app.router.add_get("/editor", serve_editor)
+    app.router.add_get("/api/keymap/groups", api_keymap_groups)
     app.router.add_get("/pad", serve_pad)
     app.router.add_get("/", serve_pad)      # root → pad client
     app.router.add_get("/admin", serve_index)

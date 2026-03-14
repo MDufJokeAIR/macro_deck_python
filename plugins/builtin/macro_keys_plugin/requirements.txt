@@ -1,4 +1,0 @@
-# Recommended – install the best available backend:
-# pynput works on Windows, macOS, and Linux (X11 & Wayland).
-# Uncomment to auto-install:
-# pynput>=1.7.6

@@ -1,2 +1,0 @@
-[console_scripts]
-macro-deck = macro_deck_python.__main__:main

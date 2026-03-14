@@ -124,6 +124,7 @@ input[type=range].vslider::-moz-range-track{
   <div id="folder-nav">
     <button id="btn-back" onclick="navBack()">← Back</button>
     <select id="profile-select" onchange="switchProfile(this.value)"></select>
+    <a href="/editor" target="_blank" style="color:#7c83fd;font-size:.7rem;margin-left:4px;text-decoration:none">✏</a>
   </div>
 </div>
 
