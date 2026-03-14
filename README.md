@@ -1,7 +1,31 @@
 # Macro Deck — Python Rewrite
 
-A complete Python port of the [Macro Deck](https://github.com/Macro-Deck-App/Macro-Deck) C# server.  
-Transforms any phone, tablet, or browser into a programmable macro pad.
+A full Python port of [Macro Deck](https://github.com/Macro-Deck-App/Macro-Deck).  
+Turns any phone, tablet, or Raspberry Pi browser into a programmable macro pad.
+
+---
+
+## Quick Start
+
+```bash
+# Install
+python3 -m venv venv && source venv/bin/activate
+pip install websockets aiohttp cryptography psutil
+
+# Run
+python3 -m macro_deck_python
+
+# Create a new plugin
+python3 -m macro_deck_python new-plugin "My Plugin" --id me.myplugin
+```
+
+**Open on Raspberry Pi / phone / tablet:**
+```
+http://<server-ip>:8192        ← button pad  (auto-connects)
+http://<server-ip>:8192/admin  ← admin panel
+```
+
+WebSocket server listens on `ws://<server-ip>:8191`.
 
 ---
 
@@ -9,228 +33,274 @@ Transforms any phone, tablet, or browser into a programmable macro pad.
 
 ```
 macro_deck_python/
-├── __main__.py              # Entry point — boots all services
-├── core/
-│   └── config_manager.py    # App-wide settings  (~/.macro_deck/config.json)
+├── __main__.py                  # Entry-point (start server / new-plugin CLI)
+├── core/config_manager.py       # App settings  ~/.macro_deck/config.json
+│
 ├── models/
-│   ├── variable.py          # Variable + VariableType (Integer/Float/String/Bool)
-│   ├── action_button.py     # ActionButton, ActionEntry, Condition
-│   └── profile.py           # Profile, Folder (unlimited nesting)
-├── services/
-│   ├── variable_manager.py  # Thread-safe CRUD, persistence, change callbacks
-│   ├── profile_manager.py   # Profile CRUD, per-client profile routing
-│   ├── action_executor.py   # Runs plugin actions in background threads
-│   ├── extension_store.py   # Fetches/installs/uninstalls plugins and icon packs
-│   └── update_service.py    # Polls GitHub releases for updates
+│   ├── variable.py              # Variable + VariableType
+│   ├── action_button.py         # ActionButton (button_type, slider_config, actions, conditions)
+│   └── profile.py               # Profile → Folder → {buttons, sliders, sub_folders}
+│
 ├── plugins/
-│   ├── base.py              # IMacroDeckPlugin, PluginAction, PluginConfiguration, PluginCredentials
-│   ├── plugin_manager.py    # Dynamic loader — discovers plugins from a directory
+│   ├── base.py                  # IMacroDeckPlugin, PluginAction, PluginConfiguration,
+│   │                            #   PluginCredentials (Fernet-encrypted)
+│   ├── plugin_manager.py        # Dynamic loader, requirements.txt auto-install, unload
 │   └── builtin/
-│       ├── keyboard_plugin/ # Hotkey, TypeText, KeyPress actions  (pyautogui)
-│       └── system_variables/# CPU, RAM, time, date variables  (psutil)
+│       ├── keyboard_plugin/     # Hotkey / TypeText / KeyPress  (pyautogui)
+│       ├── keyboard_macro/      # 1-5 key macros: short/long/double/hold/sequence
+│       │                        #   key_map.py (146 keys: F1-F24, OEM, media, numpad…)
+│       │                        #   injector.py (6 backends: SendInput/Quartz/xdotool/
+│       │                        #                Xlib/evdev/pyautogui)
+│       ├── commands_plugin/     # RunCommand, OpenURL, Delay, ToggleVariable, SetVariable
+│       ├── system_variables/    # CPU%, RAM%, time, date (psutil)
+│       ├── obs_plugin/          # OBS WebSocket: stream/record/scene/source/volume
+│       └── analog_slider/       # Vertical slider replacing N button cells in a column
+│           ├── main.py          # SliderConfig, SliderState, SliderRegistry, actions
+│           ├── analog_output.py # VariableOutput, KeyboardThresholdOutput
+│           └── registry.py      # Stable singleton (survives hot-reload)
+│
+├── sdk/
+│   ├── __init__.py              # Public API: PluginBase, ActionBase, @action, helpers
+│   ├── plugin_base.py           # PluginBase (decorator + class style)
+│   ├── decorators.py            # @action, @on_load, @on_delete
+│   └── api.py                   # set_variable, get_config, set_credentials, log_*
+│
+├── services/
+│   ├── variable_manager.py      # Thread-safe CRUD, persistence, change callbacks
+│   ├── profile_manager.py       # Profile CRUD, per-client routing
+│   ├── action_executor.py       # Background thread pipeline (conditions → actions)
+│   ├── hot_reload.py            # Poll plugins dir, reload changed plugins (~2 s)
+│   ├── icon_manager.py          # Content-addressable PNG store, LRU cache, base64
+│   ├── extension_store.py       # Download/install/uninstall from extension store
+│   └── update_service.py        # GitHub release update checker
+│
 ├── websocket/
-│   ├── protocol.py          # JSON message encode/decode
-│   └── server.py            # Async WebSocket server  (websockets lib)
+│   ├── protocol.py              # JSON encode/decode, message reference
+│   └── server.py                # asyncio server, plugin_message_hooks, CORS origins=None
+│
 ├── gui/
-│   ├── web_config.py        # aiohttp REST API + single-page admin UI
-│   └── tray.py              # System tray icon  (pystray + Pillow)
-└── utils/
-    ├── logger.py            # MacroDeckLogger — file + console, 4 levels
-    ├── template.py          # {variable_name} label rendering
-    ├── condition.py         # Variable condition evaluator (==, !=, >, <, >=, <=)
-    └── folder_utils.py      # BFS folder lookup
+│   ├── pad_client.py            # Full single-file browser button-pad HTML/JS
+│   ├── web_config.py            # aiohttp REST API + CORS middleware + admin SPA
+│   └── tray.py                  # System tray (pystray + Pillow)
+│
+├── utils/
+│   ├── template.py              # {variable} and {var:.2f} label rendering
+│   ├── condition.py             # Condition evaluator  (== != > < >= <=)
+│   ├── folder_utils.py          # BFS folder search
+│   └── logger.py                # MacroDeckLogger (Trace/Info/Warning/Error)
+│
+├── cli/scaffold.py              # `new-plugin` scaffolding command
+└── tests/                       # 351 unit + integration tests (100% pass)
 ```
-
----
-
-## Install
-
-**Recommended: Use a virtual environment (cleanest, avoids system conflicts):**
-
-```bash
-cd /path/to/MacroDeck_py
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-pip install --upgrade pip setuptools wheel
-pip install websockets aiohttp pystray Pillow pyautogui psutil
-python3 -m macro_deck_python
-```
-
-**Alternative: Core only (WebSocket server, no GUI/keyboard/system tray)**
-
-```bash
-pip install websockets
-python3 -m macro_deck_python --no-gui --no-tray
-```
-
----
-
-## Run
-
-```bash
-python3 -m macro_deck_python
-
-# With options
-python3 -m macro_deck_python --port 8191 --config-port 8192 --log-level DEBUG
-
-# Headless (no tray, no web UI)
-python3 -m macro_deck_python --no-tray --no-gui
-```
-
-**Access the web UI:**
-- Same machine: `http://localhost:8192`
-- From phone/tablet on network: `http://<your-ip>:8192` (e.g., `192.168.1.50:8192`)
-
-**Connect native Macro Deck client:**  
-`ws://<your-ip>:8191`
 
 ---
 
 ## CLI Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--port` | 8191 | WebSocket listen port |
-| `--config-port` | 8192 | Web config UI port |
-| `--host` | 0.0.0.0 | Bind address |
-| `--no-tray` | — | Disable system tray icon |
-| `--no-gui` | — | Disable web config UI |
-| `--no-updates` | — | Disable update checker |
-| `--plugins-dir` | `~/.macro_deck/plugins` | Custom plugins directory |
-| `--log-level` | INFO | DEBUG / INFO / WARNING / ERROR |
+```
+python3 -m macro_deck_python [command] [options]
+
+Commands:
+  (none / start)      Start the server
+  new-plugin          Scaffold a new Python extension
+
+Server options:
+  --port              WebSocket port           (default 8191)
+  --config-port       Web UI port              (default 8192)
+  --host              Bind address             (default 0.0.0.0)
+  --no-tray           Disable system tray
+  --no-gui            Disable web UI
+  --no-updates        Disable update checker
+  --no-hot-reload     Disable hot-reload watcher
+  --plugins-dir       Custom plugins directory
+  --log-level         DEBUG|INFO|WARNING|ERROR
+
+new-plugin options:
+  "Plugin Name"       Human-readable name (required)
+  --id                package_id  e.g. me.myplugin (required)
+  --author            Your name
+  --desc              Short description
+  --style             decorator (default) | class
+  --out               Output parent directory
+```
 
 ---
 
 ## WebSocket Protocol
 
-All messages are JSON with a `method` field.
+All messages: `{ "method": "...", ...fields }`
 
-### Client to Server
+### Client → Server
 
-| Method | Required fields | Description |
-|--------|----------------|-------------|
-| `CONNECT` | `device_type`, `api_version` | Identify the client |
-| `BUTTON_PRESS` | `position` or `button_id` | Trigger a button |
-| `GET_BUTTONS` | `folder_id` (optional) | Fetch the button layout |
-| `GET_PROFILES` | — | List all profiles |
-| `SET_PROFILE` | `profile_id` | Switch active profile |
-| `GET_VARIABLES` | — | Fetch all variables |
-| `SET_VARIABLE` | `name`, `value`, `type` | Create or update a variable |
-| `GET_CONNECTED_CLIENTS` | — | List connected clients |
+| Method | Fields | Description |
+|---|---|---|
+| `CONNECT` | `device_type`, `api_version` | Identify client |
+| `BUTTON_PRESS` | `position` or `button_id` | Press a button |
+| `GET_BUTTONS` | `folder_id?` | Fetch layout |
+| `GET_PROFILES` | — | List profiles |
+| `SET_PROFILE` | `profile_id` | Switch profile |
+| `GET_VARIABLES` | — | List variables |
+| `SET_VARIABLE` | `name`, `value`, `type` | Set variable |
+| `SLIDER_CHANGE` | `slider_id`, `value` | Slider moved |
 | `PING` | — | Keepalive |
 
-### Server to Client
+### Server → Client
 
-| Method | Description |
-|--------|-------------|
-| `CONNECTED` | Sent on connect, includes `client_id` |
-| `BUTTONS` | Full layout for a folder |
-| `PROFILES` | Profile list and active id |
-| `VARIABLES` | All variables |
-| `VARIABLE_CHANGED` | Pushed whenever any variable changes |
-| `BUTTON_STATE` | Pushed after a button state changes |
-| `CONNECTED_CLIENTS` | List of all clients |
-| `PONG` | Response to PING |
-| `UPDATE_AVAILABLE` | New version available |
-| `ERROR` | Error message |
-
----
-
-## Variables
-
-Stored in `~/.macro_deck/variables.json`.
-
-| Type | Python type | Example |
-|------|-------------|---------|
-| `Integer` | `int` | `42` |
-| `Float` | `float` | `72.4` |
-| `String` | `str` | `"Gaming"` |
-| `Bool` | `bool` | `True` |
-
-**Labels:** `CPU: {system_cpu_percent:.1f}%` renders as `CPU: 45.2%`  
-**State binding:** set `state_binding = "is_live"` on a button — its on/off tracks that Bool variable.  
-**Conditions:** `variable == value` with operators `==  !=  >  <  >=  <=`
+| Method | Fields | Description |
+|---|---|---|
+| `CONNECTED` | `client_id` | Welcome |
+| `BUTTONS` | `buttons[]`, `button_type`, `slider_config` | Full layout |
+| `BUTTON_STATE` | `button_id`, `state` | Toggle update |
+| `PROFILES` | `profiles[]`, `active_id` | Profile list |
+| `VARIABLES` | `variables[]` | All variables |
+| `VARIABLE_CHANGED` | `variable` | Live update |
+| `SLIDER_STATE` | `slider_id`, `value` | Slider broadcast |
+| `PONG` | — | Keepalive reply |
+| `ERROR` | `message` | Error |
 
 ---
 
-## Writing a Plugin
+## Writing a Python Extension
 
-Create `~/.macro_deck/plugins/your_name.your_plugin/` with:
+### Decorator style (recommended)
 
-**`manifest.json`**
-```json
+```python
+# ~/.macro_deck/plugins/me.myplugin/main.py
+from macro_deck_python.sdk import PluginBase, action, VariableType, set_variable
+
+class Main(PluginBase):
+    package_id  = "me.myplugin"
+    name        = "My Plugin"
+    version     = "1.0.0"
+    author      = "Me"
+    description = "Does something cool"
+
+    @action(name="Mute", description="Toggle audio mute")
+    def mute(self, client_id, button):
+        import subprocess
+        subprocess.run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", "toggle"])
+
+    @action(name="Counter", can_configure=True)
+    def counter(self, client_id, button):
+        import json
+        cfg = json.loads(self.configuration) if self.configuration else {}
+        n = int(cfg.get("start", 0))
+        set_variable("my_counter", n + 1, VariableType.INTEGER, self)
+```
+
+### Class style
+
+```python
+from macro_deck_python.sdk import PluginBase, ActionBase
+
+class MyAction(ActionBase):
+    action_id = "my_action";  name = "My Action";  description = ""
+    def trigger(self, client_id, button):
+        val = self.get_config("text", "hello")   # reads JSON config
+        print(val)
+
+class Main(PluginBase):
+    package_id = "me.myplugin"; name = "My Plugin"; ...
+    def enable(self):
+        super().enable()
+        self.actions.append(MyAction())
+```
+
+### SDK helpers
+
+```python
+from macro_deck_python.sdk import (
+    set_variable, get_variable,     # variable access
+    get_config, set_config,         # plugin config (persisted)
+    get_credentials, set_credentials, delete_credentials,  # Fernet-encrypted
+    log_trace, log_info, log_warning, log_error,
+    VariableType,
+)
+```
+
+### Scaffold
+
+```bash
+python3 -m macro_deck_python new-plugin "My Plugin" \
+  --id me.myplugin --author "Me" --style decorator
+# Creates ~/.macro_deck/plugins/me.myplugin/ with
+#   main.py  manifest.json  requirements.txt  config.json  README.md
+```
+
+Add pip dependencies to `requirements.txt` — they auto-install on load.  
+Edit `main.py` and save — Macro Deck hot-reloads within ~2 seconds.
+
+---
+
+## Analog Slider
+
+Replace N consecutive button cells in a column with a vertical slider.
+
+```python
+# Via CreateSliderAction config:
 {
-  "package_id": "your_name.your_plugin",
-  "name": "My Plugin",
-  "version": "1.0.0",
-  "author": "You",
-  "description": "Does something cool",
-  "target_api_version": 20
+  "row": 0,
+  "col": 2,
+  "slider_config": {
+    "size": 4,          # rows occupied
+    "min_value": 0,
+    "max_value": 100,
+    "step": 1,
+    "label": "Volume",
+    "outputs": [
+      { "type": "variable",  "variable_name": "master_vol", "variable_type": "Integer" },
+      { "type": "threshold",
+        "thresholds": [
+          { "min": 0,  "max": 10,  "keys": ["volume_mute"],  "mode": "crossing" },
+          { "min": 90, "max": 100, "keys": ["f12"],           "mode": "crossing" }
+        ]
+      }
+    ]
+  }
 }
 ```
 
-**`main.py`**
-```python
-from macro_deck_python.plugins.base import IMacroDeckPlugin, PluginAction
-from macro_deck_python.models.variable import VariableType
-from macro_deck_python.services.variable_manager import VariableManager
-import json
+**Output modes:**
 
-class VolumeUpAction(PluginAction):
-    action_id = "volume_up"
-    name = "Volume Up"
-    description = "Increases system volume"
-    can_configure = True
+| Type | Effect |
+|---|---|
+| `variable` | Writes value/normalised to a VariableManager variable |
+| `threshold` | Fires key combos on zone entry (`crossing`) or hold while inside (`zone`) |
 
-    def trigger(self, client_id: str, action_button) -> None:
-        cfg = json.loads(self.configuration) if self.configuration else {}
-        step = cfg.get("step", 5)
-        current = VariableManager.get_value("volume") or 0
-        VariableManager.set_value(
-            "volume", min(100, int(current) + step),
-            VariableType.INTEGER, self.plugin.package_id
-        )
+---
 
-class Main(IMacroDeckPlugin):
-    package_id = "your_name.your_plugin"
-    name = "My Plugin"
-    version = "1.0.0"
-    author = "You"
-    description = "Does something cool"
+## Raspberry Pi / Browser Connection
 
-    def enable(self):
-        self.actions = [VolumeUpAction()]
+The button-pad client is served at:
+```
+http://<server-ip>:8192       ← open this in the Pi browser
 ```
 
-**Save plugin config:**
-```python
-from macro_deck_python.plugins.base import PluginConfiguration
-PluginConfiguration.set_value(self, "api_key", "abc123")
-key = PluginConfiguration.get_value(self, "api_key")
-```
+It auto-discovers the WebSocket port via `/api/info` and connects.  
+No configuration needed — just open the URL.
 
-**Save credentials:**
-```python
-from macro_deck_python.plugins.base import PluginCredentials
-PluginCredentials.set_credentials(self, {"username": "u", "password": "p"})
-creds = PluginCredentials.get_plugin_credentials(self)
+If the connection fails:
+```bash
+# Allow the ports in the firewall
+sudo ufw allow 8191/tcp
+sudo ufw allow 8192/tcp
+
+# Verify the server is listening on all interfaces
+ss -tlnp | grep -E "8191|8192"
+# Should show  0.0.0.0:8191  and  0.0.0.0:8192
+
+# Test from the Pi
+curl http://<server-ip>:8192/api/info
 ```
 
 ---
 
-## Data Files
+## Tests
 
-| Path | Contents |
-|------|----------|
-| `~/.macro_deck/config.json` | App settings |
-| `~/.macro_deck/profiles.json` | All profiles, folders, buttons |
-| `~/.macro_deck/variables.json` | All persisted variables |
-| `~/.macro_deck/plugins/<id>/` | Plugin directory |
-| `~/.macro_deck/plugins/<id>/manifest.json` | Plugin metadata |
-| `~/.macro_deck/plugins/<id>/config.json` | Plugin key-value config |
-| `~/.macro_deck/icons/<id>/` | Icon pack directory |
-| `~/.macro_deck/logs/macro_deck_YYYY-MM-DD.log` | Log files |
+```bash
+python3 -m unittest discover -s tests -p "test_*.py" -v
+# 351 tests, 0 failures
+```
 
 ---
 

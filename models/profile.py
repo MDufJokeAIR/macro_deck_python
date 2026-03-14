@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 import uuid
 
 from macro_deck_python.models.action_button import ActionButton
+from macro_deck_python.models.slider import SliderWidget
 
 
 @dataclass
@@ -19,6 +20,8 @@ class Folder:
     # key = (row, col) as "row_col" string for JSON serialisation
     buttons: Dict[str, ActionButton] = field(default_factory=dict)
     sub_folders: List["Folder"] = field(default_factory=list)
+    # key = slider_id
+    sliders: Dict[str, SliderWidget] = field(default_factory=dict)
     columns: int = 5
     rows: int = 3
 
@@ -41,6 +44,7 @@ class Folder:
             "rows": self.rows,
             "buttons": {k: v.to_dict() for k, v in self.buttons.items()},
             "sub_folders": [f.to_dict() for f in self.sub_folders],
+            "sliders": {k: v.to_dict() for k, v in self.sliders.items()},
         }
 
     @staticmethod
@@ -53,6 +57,7 @@ class Folder:
         )
         f.buttons = {k: ActionButton.from_dict(v) for k, v in d.get("buttons", {}).items()}
         f.sub_folders = [Folder.from_dict(sf) for sf in d.get("sub_folders", [])]
+        f.sliders = {k: SliderWidget.from_dict(v) for k, v in d.get("sliders", {}).items()}
         return f
 
 

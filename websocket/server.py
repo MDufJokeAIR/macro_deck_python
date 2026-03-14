@@ -30,6 +30,7 @@ from macro_deck_python.services.variable_manager import VariableManager
 from macro_deck_python.utils.template import render_label
 from macro_deck_python.utils.folder_utils import find_folder as _find_folder
 from macro_deck_python.websocket.protocol import decode, encode
+from macro_deck_python.models.slider import SliderWidget
 
 logger = logging.getLogger("macro_deck.websocket")
 
@@ -46,23 +47,40 @@ class ClientInfo:
         self.profile_id: Optional[str] = None
 
 
+# Set of live server instances (for class-level broadcast)
+_LIVE_INSTANCES: set = set()
+
 class MacroDeckServer:
+    # Plugin-registered message hooks: method → list of async handlers
+    _plugin_message_hooks: Dict[str, list] = {}
+
+    @classmethod
+    def register_message_hook(cls, method: str, handler) -> None:
+        """Register an async handler for a WebSocket method (called by plugins)."""
+        if method not in cls._plugin_message_hooks:
+            cls._plugin_message_hooks[method] = []
+        if handler not in cls._plugin_message_hooks[method]:
+            cls._plugin_message_hooks[method].append(handler)
+
+    @classmethod
+    async def _broadcast_class(cls, message: str) -> None:
+        """Broadcast to all connected clients (class-level, no instance needed)."""
+        # We need to reach any live instance. Use a weak registry.
+        for instance in _LIVE_INSTANCES:
+            await instance._broadcast(message)
+
     def __init__(self, host: str = "0.0.0.0", port: int = DEFAULT_PORT):
         self.host = host
         self.port = port
         self._clients: Dict[str, ClientInfo] = {}   # client_id → ClientInfo
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        _LIVE_INSTANCES.add(self)
 
         # Register variable-change hook to push updates to all clients
         VariableManager.on_change(self._on_variable_changed)
 
     # ── connection lifecycle ──────────────────────────────────────────
 
-    async def handler(self, ws: "WebSocketServerProtocol", path: str) -> None:
-        # Capture event loop on first connection
-        if self._loop is None:
-            self._loop = asyncio.get_running_loop()
-        
+    async def handler(self, ws: "WebSocketServerProtocol") -> None:
         client_id = str(uuid.uuid4())
         info = ClientInfo(ws, client_id)
         self._clients[client_id] = info
@@ -92,7 +110,6 @@ class MacroDeckServer:
 
         dispatch = {
             "CONNECT":               self._on_connect,
-            "CONNECTED":             self._on_connect,  # C# client sends CONNECTED to identify
             "BUTTON_PRESS":          self._on_button_press,
             "GET_BUTTONS":           self._on_get_buttons,
             "GET_PROFILES":          self._on_get_profiles,
@@ -101,34 +118,36 @@ class MacroDeckServer:
             "SET_VARIABLE":          self._on_set_variable,
             "GET_CONNECTED_CLIENTS": self._on_get_connected_clients,
             "PING":                  self._on_ping,
+            "GET_SLIDERS":           self._on_get_sliders,
+            "ADD_SLIDER":            self._on_add_slider,
+            "REMOVE_SLIDER":         self._on_remove_slider,
+            "UPDATE_SLIDER":         self._on_update_slider,
         }
 
         handler = dispatch.get(method)
         if handler:
             await handler(info, msg)
         else:
-            await info.ws.send(encode("ERROR", message=f"Unknown method: {method}"))
+            # Try plugin-registered hooks first
+            hooks = self.__class__._plugin_message_hooks.get(method, [])
+            if hooks:
+                for hook in hooks:
+                    try:
+                        await hook(info, msg)
+                    except Exception as exc:
+                        logger.error("Plugin hook %s error: %s", method, exc)
+            else:
+                await info.ws.send(encode("ERROR", message=f"Unknown method: {method}"))
 
     # ── individual handlers ───────────────────────────────────────────
 
     async def _on_connect(self, info: ClientInfo, msg: dict) -> None:
         info.device_type = msg.get("device_type", "unknown")
-        # Ensure api_version is an integer
-        api_version = msg.get("api_version", 0)
-        info.api_version = int(api_version) if isinstance(api_version, str) else api_version
-        
+        info.api_version = msg.get("api_version", 0)
         info.profile_id = msg.get("profile_id")
         if info.profile_id:
             ProfileManager.set_client_profile(info.client_id, info.profile_id)
-        
-        # Send full initialization sequence
-        # 1. Send available profiles
-        await self._on_get_profiles(info, {})
-        
-        # 2. Send all variables
-        await self._on_get_variables(info, {})
-        
-        # 3. Send button layout
+        # Send initial button layout
         await self._send_buttons(info)
 
     async def _on_button_press(self, info: ClientInfo, msg: dict) -> None:
@@ -238,27 +257,49 @@ class MacroDeckServer:
                     return bool(val)
             return btn.state
 
-        buttons_payload = []
-        for pos, btn in folder.buttons.items():
+        def _button_payload(pos, btn) -> dict:
             row, col = pos.split("_")
-            buttons_payload.append({
-                "button_id": btn.button_id,
-                "position": pos,
-                "row": int(row),
-                "col": int(col),
-                "label": _resolve_label(btn.label),
-                "label_color": btn.label_color,
-                "label_font_size": btn.label_font_size,
-                "icon": btn.icon,
-                "background_color": btn.background_color,
-                "state": _resolve_state(btn),
-                "has_actions": len(btn.actions) > 0 or len(btn.conditions) > 0,
-            })
+            base = {
+                "button_id":   btn.button_id,
+                "button_type": getattr(btn, "button_type", "button"),
+                "position":    pos,
+                "row":         int(row),
+                "col":         int(col),
+            }
+            btype = getattr(btn, "button_type", "button")
+            if btype == "slider":
+                sc = getattr(btn, "slider_config", {})
+                base.update({
+                    "slider_config": sc,
+                    "label": _resolve_label(sc.get("label", "")),
+                    "label_color":   btn.label_color,
+                })
+            elif btype == "slider_occupied":
+                base.update({"slider_config": getattr(btn, "slider_config", {})})
+            else:
+                base.update({
+                    "label":          _resolve_label(btn.label),
+                    "label_color":    btn.label_color,
+                    "label_font_size": btn.label_font_size,
+                    "icon":           btn.icon,
+                    "background_color": btn.background_color,
+                    "state":          _resolve_state(btn),
+                    "has_actions":    len(btn.actions) > 0 or len(btn.conditions) > 0,
+                })
+            return base
+
+        buttons_payload = [_button_payload(pos, btn) for pos, btn in folder.buttons.items()]
 
         sub_folders = [
             {"folder_id": sf.folder_id, "name": sf.name}
             for sf in folder.sub_folders
         ]
+
+        # Include slider occupancy so clients know which cells are sliders
+        slider_cells: dict = {}
+        for slider in folder.sliders.values():
+            for cell in slider.occupied_cells:
+                slider_cells[cell] = slider.slider_id
 
         await info.ws.send(encode(
             "BUTTONS",
@@ -268,6 +309,7 @@ class MacroDeckServer:
             rows=folder.rows,
             buttons=buttons_payload,
             sub_folders=sub_folders,
+            slider_cells=slider_cells,
         ))
 
     async def _broadcast(self, message: str) -> None:
@@ -284,25 +326,17 @@ class MacroDeckServer:
 
     def _on_variable_changed(self, variable) -> None:
         """Called from any thread when a variable changes."""
-        if self._loop is None:
-            return  # Server not yet running
-        
         try:
-            asyncio.run_coroutine_threadsafe(
-                self._broadcast(encode("VARIABLE_CHANGED", variable=variable.to_dict())),
-                self._loop
-            )
-        except Exception:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(
+                    self._broadcast(encode("VARIABLE_CHANGED", variable=variable.to_dict()))
+                )
+        except RuntimeError:
             pass
 
         # Update state-bound buttons
-        try:
-            asyncio.run_coroutine_threadsafe(
-                self._push_state_bound_buttons(variable.name),
-                self._loop
-            )
-        except Exception as exc:
-            logger.debug("Error pushing state-bound buttons: %s", exc)
+        asyncio.ensure_future(self._push_state_bound_buttons(variable.name))
 
     async def _push_state_bound_buttons(self, variable_name: str) -> None:
         """When a Bool variable changes, push updated states to all clients."""
@@ -324,23 +358,105 @@ class MacroDeckServer:
 
     # ── start ─────────────────────────────────────────────────────────
 
+
+    # ── slider handlers ───────────────────────────────────────────────
+
+    async def _on_slider_change(self, info: ClientInfo, msg: dict) -> None:
+        """Client dragged a slider. Apply value and broadcast to all clients."""
+        from macro_deck_python.plugins.builtin.analog_slider.slider_manager import SliderManager
+        slider_id = msg.get("slider_id", "")
+        try:
+            new_value = float(msg.get("value", 0))
+        except (TypeError, ValueError):
+            await info.ws.send(encode("ERROR", message="SLIDER_CHANGE: invalid value"))
+            return
+        slider = SliderManager.apply_change(slider_id, new_value)
+        if slider is None:
+            await info.ws.send(encode("ERROR", message=f"Slider not found: {slider_id}"))
+            return
+        # Broadcast updated state to all clients (including sender so UI stays in sync)
+        await self._broadcast(encode(
+            "SLIDER_STATE",
+            slider_id=slider.slider_id,
+            value=slider.current_value,
+        ))
+
+    async def _on_get_sliders(self, info: ClientInfo, msg: dict) -> None:
+        profile = ProfileManager.get_client_profile(info.client_id)
+        if not profile:
+            await info.ws.send(encode("SLIDERS", sliders=[]))
+            return
+        folder_id = msg.get("folder_id")
+        folder = profile.folder
+        if folder_id:
+            found = _find_folder(folder, folder_id)
+            if found:
+                folder = found
+        sliders = [s.to_dict() for s in folder.sliders.values()]
+        await info.ws.send(encode("SLIDERS",
+                                  folder_id=folder.folder_id,
+                                  sliders=sliders))
+
+    async def _on_add_slider(self, info: ClientInfo, msg: dict) -> None:
+        from macro_deck_python.plugins.builtin.analog_slider.slider_manager import SliderManager
+        profile = ProfileManager.get_client_profile(info.client_id)
+        if not profile:
+            await info.ws.send(encode("ERROR", message="No active profile"))
+            return
+        try:
+            slider = SliderWidget.from_dict(msg.get("slider", {}))
+        except Exception as exc:
+            await info.ws.send(encode("ERROR", message=f"Invalid slider data: {exc}"))
+            return
+        folder_id = msg.get("folder_id")
+        ok = SliderManager.add_slider(slider, profile.profile_id, folder_id)
+        if ok:
+            await self._broadcast(encode("SLIDER_ADDED", slider=slider.to_dict()))
+        else:
+            await info.ws.send(encode("ERROR", message="Could not add slider"))
+
+    async def _on_remove_slider(self, info: ClientInfo, msg: dict) -> None:
+        from macro_deck_python.plugins.builtin.analog_slider.slider_manager import SliderManager
+        profile = ProfileManager.get_client_profile(info.client_id)
+        if not profile:
+            await info.ws.send(encode("ERROR", message="No active profile"))
+            return
+        slider_id = msg.get("slider_id", "")
+        folder_id = msg.get("folder_id")
+        ok = SliderManager.remove_slider(slider_id, profile.profile_id, folder_id)
+        if ok:
+            await self._broadcast(encode("SLIDER_REMOVED", slider_id=slider_id))
+        else:
+            await info.ws.send(encode("ERROR", message=f"Slider not found: {slider_id}"))
+
+    async def _on_update_slider(self, info: ClientInfo, msg: dict) -> None:
+        from macro_deck_python.plugins.builtin.analog_slider.slider_manager import SliderManager
+        profile = ProfileManager.get_client_profile(info.client_id)
+        if not profile:
+            await info.ws.send(encode("ERROR", message="No active profile"))
+            return
+        try:
+            slider = SliderWidget.from_dict(msg.get("slider", {}))
+        except Exception as exc:
+            await info.ws.send(encode("ERROR", message=f"Invalid slider data: {exc}"))
+            return
+        folder_id = msg.get("folder_id")
+        ok = SliderManager.update_slider(slider, profile.profile_id, folder_id)
+        if ok:
+            await self._broadcast(encode("SLIDER_UPDATED", slider=slider.to_dict()))
+        else:
+            await info.ws.send(encode("ERROR", message="Could not update slider"))
+
     async def start(self) -> None:
         if not _WEBSOCKETS_AVAILABLE:
             raise ImportError("Install websockets: pip install websockets")
-        logger.info("Starting WebSocket server on ws://%s:%d", self.host, int(self.port))
-        
-        # Custom request handler to accept Connection: keep-alive
-        async def process_request(request):
-            # Accept all upgrade requests, even with keep-alive headers
-            # Return None to accept, or raise an exception to reject
-            return None
-        
-        # Allow Connection: keep-alive for broader client compatibility
+        logger.info("Starting WebSocket server on ws://%s:%d", self.host, self.port)
         async with _websockets.serve(
-            self.handler, 
-            self.host, 
-            self.port,
-            compression=None  # Disable compression for compatibility
+            self.handler, self.host, self.port,
+            origins=None,          # accept connections from any origin (browsers, Pi, etc.)
+            ping_interval=20,      # keepalive every 20s
+            ping_timeout=30,       # disconnect after 30s no pong
+            max_size=10 * 1024 * 1024,  # 10 MB max message
         ):
             await asyncio.Future()   # run forever
 

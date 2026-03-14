@@ -1,0 +1,8 @@
+{
+  "package_id": "builtin.analog_slider",
+  "name": "Analog Slider",
+  "version": "1.0.0",
+  "author": "MacroDeck",
+  "description": "Replace button column slots with analog sliders. Outputs: variable, keyboard thresholds, scroll, volume, gamepad axis.",
+  "target_api_version": 20
+}

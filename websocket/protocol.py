@@ -13,6 +13,11 @@ Client → Server:
   GET_ICONS            { method }
   GET_CONNECTED_CLIENTS{ method }
   PING                 { method }
+  SLIDER_CHANGE        { method, slider_id, value }
+  GET_SLIDERS          { method, folder_id? }
+  ADD_SLIDER           { method, slider: {...}, folder_id? }
+  REMOVE_SLIDER        { method, slider_id, folder_id? }
+  UPDATE_SLIDER        { method, slider: {...}, folder_id? }
 
 Server → Client:
   CONNECTED            { method, client_id }
@@ -24,7 +29,16 @@ Server → Client:
   CONNECTED_CLIENTS    { method, clients: [...] }
   ERROR                { method, message }
   PONG                 { method }
+  SLIDER_UPDATE        { method, slider_id, value }
+
+Client → Server (Slider):
+  SLIDER_CHANGE        { method, slider_id, value, position?, profile_id?, folder_id? }
   UPDATE_AVAILABLE     { method, version, download_url }
+  SLIDER_STATE         { method, slider_id, value }
+  SLIDERS              { method, folder_id, sliders: [...] }
+  SLIDER_ADDED         { method, slider: {...} }
+  SLIDER_REMOVED       { method, slider_id }
+  SLIDER_UPDATED       { method, slider: {...} }
 """
 from __future__ import annotations
 import json
@@ -36,24 +50,4 @@ def encode(method: str, **kwargs: Any) -> str:
 
 
 def decode(raw: str) -> dict:
-    """Decode JSON message and normalize field names for C# client compatibility.
-    
-    Handles both PascalCase (C# format) and lowercase (Python format) field names:
-    - Method → method
-    - Client-Id → client_id
-    - Button-Id → button_id
-    - Profile-Id → profile_id
-    - Folder-Id → folder_id
-    """
-    data = json.loads(raw)
-    normalized = {}
-    
-    for key, value in data.items():
-        # Convert PascalCase/kebab-case to lowercase
-        # Method → method
-        # Client-Id → client_id  
-        # Button-Id → button_id
-        normalized_key = key.lower().replace("-", "_")
-        normalized[normalized_key] = value
-    
-    return normalized
+    return json.loads(raw)

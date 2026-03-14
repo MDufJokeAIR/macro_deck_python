@@ -81,6 +81,11 @@ class ActionButton:
     state_binding: Optional[str] = None  # variable name (Bool)
     actions: List[ActionEntry] = field(default_factory=list)
     conditions: List[Condition] = field(default_factory=list)
+    # slider support
+    button_type: str = "button"          # "button" | "slider" | "slider_occupied"
+    slider_config: dict = field(default_factory=dict)
+    # Slider extension
+    button_type: str = "button"          # "button" | "slider"
 
     def to_dict(self) -> dict:
         return {
@@ -94,6 +99,8 @@ class ActionButton:
             "state_binding": self.state_binding,
             "actions": [a.to_dict() for a in self.actions],
             "conditions": [c.to_dict() for c in self.conditions],
+            "button_type": self.button_type,
+            "slider_config": self.slider_config,
         }
 
     @staticmethod
@@ -109,4 +116,6 @@ class ActionButton:
             state_binding=d.get("state_binding"),
             actions=[ActionEntry.from_dict(a) for a in d.get("actions", [])],
             conditions=[Condition.from_dict(c) for c in d.get("conditions", [])],
+            button_type=d.get("button_type", "button"),
+            slider_config=d.get("slider_config", {}),
         )

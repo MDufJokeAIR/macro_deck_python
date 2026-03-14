@@ -19,6 +19,7 @@ except ImportError:
     web = None  # type: ignore
 
 from macro_deck_python.core.config_manager import ConfigManager
+from macro_deck_python.gui.pad_client import get_pad_html
 from macro_deck_python.models.action_button import ActionButton, ActionEntry
 from macro_deck_python.models.profile import Profile, Folder
 from macro_deck_python.models.variable import Variable, VariableType
@@ -225,27 +226,7 @@ async def serve_index(request: web.Request) -> web.Response:
 def create_app() -> "web.Application":
     if not _AIOHTTP_AVAILABLE:
         raise ImportError("Install aiohttp: pip install aiohttp")
-    
-    # CORS middleware to allow cross-origin requests from phones/tablets
-    @web.middleware
-    async def cors_middleware(request, handler):
-        response = await handler(request)
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS, PUT"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        return response
-    
-    async def handle_options(request):
-        return web.Response(
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS, PUT",
-                "Access-Control-Allow-Headers": "Content-Type",
-            }
-        )
-    
     app = web.Application(middlewares=[cors_middleware])
-    app.router.add_options("/{tail:.*}", handle_options)
     app.router.add_get("/api/status", api_status)
     app.router.add_get("/api/profiles", api_get_profiles)
     app.router.add_post("/api/profiles", api_create_profile)
@@ -269,7 +250,12 @@ def create_app() -> "web.Application":
     _register_macrokeys_routes(app)
     if _STATIC_DIR.exists():
         app.router.add_static("/static", _STATIC_DIR)
-    app.router.add_get("/{tail:.*}", serve_index)
+    app.router.add_get("/api/info", api_info)
+    app.router.add_get("/pad", serve_pad)
+    app.router.add_get("/", serve_pad)      # root → pad client
+    app.router.add_get("/admin", serve_index)
+    app.router.add_get("/admin/{tail:.*}", serve_index)
+    app.router.add_get("/{tail:.*}", serve_pad)  # everything else → pad
     return app
 
 
@@ -462,3 +448,79 @@ def _register_macrokeys_routes(app: web.Application) -> None:
     app.router.add_get("/api/macrokeys/keys",         api_macrokeys_all_keys)
     app.router.add_get("/api/macrokeys/keys/{group}", api_macrokeys_group)
     app.router.add_get("/api/macrokeys/schema",       api_macrokeys_schema)
+
+# ── slider REST endpoints ─────────────────────────────────────────────
+
+async def api_get_sliders(request: web.Request) -> web.Response:
+    from macro_deck_python.models.slider import SliderWidget
+    pid = request.match_info["profile_id"]
+    from macro_deck_python.services.profile_manager import ProfileManager
+    profile = ProfileManager.get_profile(pid)
+    if not profile:
+        raise web.HTTPNotFound(reason="Profile not found")
+    folder_id = request.rel_url.query.get("folder_id")
+    folder = profile.folder
+    if folder_id:
+        found = _find_folder(folder, folder_id)
+        if found:
+            folder = found
+    return _json([s.to_dict() for s in folder.sliders.values()])
+
+
+async def api_add_slider(request: web.Request) -> web.Response:
+    from macro_deck_python.models.slider import SliderWidget
+    from macro_deck_python.plugins.builtin.analog_slider.slider_manager import SliderManager
+    pid = request.match_info["profile_id"]
+    body = await request.json()
+    folder_id = body.pop("folder_id", None)
+    try:
+        slider = SliderWidget.from_dict(body)
+    except Exception as exc:
+        raise web.HTTPBadRequest(reason=str(exc))
+    ok = SliderManager.add_slider(slider, pid, folder_id)
+    return _json({"ok": ok, "slider_id": slider.slider_id})
+
+
+async def api_update_slider(request: web.Request) -> web.Response:
+    from macro_deck_python.models.slider import SliderWidget
+    from macro_deck_python.plugins.builtin.analog_slider.slider_manager import SliderManager
+    pid = request.match_info["profile_id"]
+    body = await request.json()
+    folder_id = body.pop("folder_id", None)
+    try:
+        slider = SliderWidget.from_dict(body)
+    except Exception as exc:
+        raise web.HTTPBadRequest(reason=str(exc))
+    ok = SliderManager.update_slider(slider, pid, folder_id)
+    return _json({"ok": ok})
+
+
+async def api_delete_slider(request: web.Request) -> web.Response:
+    from macro_deck_python.plugins.builtin.analog_slider.slider_manager import SliderManager
+    pid      = request.match_info["profile_id"]
+    sid      = request.match_info["slider_id"]
+    folder_id = request.rel_url.query.get("folder_id")
+    ok = SliderManager.remove_slider(sid, pid, folder_id or None)
+    return _json({"ok": ok})
+
+
+async def api_set_slider_value(request: web.Request) -> web.Response:
+    """Directly set a slider value (for testing / automation)."""
+    from macro_deck_python.plugins.builtin.analog_slider.slider_manager import SliderManager
+    pid = request.match_info["profile_id"]
+    sid = request.match_info["slider_id"]
+    body = await request.json()
+    value = float(body.get("value", 50))
+    slider = SliderManager.apply_change(sid, value)
+    if slider is None:
+        raise web.HTTPNotFound(reason="Slider not found")
+    return _json({"ok": True, "value": slider.current_value})
+
+
+def _register_slider_routes(app: web.Application) -> None:
+    app.router.add_get   ("/api/profiles/{profile_id}/sliders",             api_get_sliders)
+    app.router.add_post  ("/api/profiles/{profile_id}/sliders",             api_add_slider)
+    app.router.add_put   ("/api/profiles/{profile_id}/sliders/{slider_id}", api_update_slider)
+    app.router.add_delete("/api/profiles/{profile_id}/sliders/{slider_id}", api_delete_slider)
+    app.router.add_post  ("/api/profiles/{profile_id}/sliders/{slider_id}/value",
+                          api_set_slider_value)

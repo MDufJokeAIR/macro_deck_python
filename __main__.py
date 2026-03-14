@@ -141,24 +141,6 @@ async def _main_async(args: argparse.Namespace) -> None:
     from macro_deck_python.websocket.server import MacroDeckServer
     ws_server = MacroDeckServer(host=host, port=port)
     tasks = [asyncio.create_task(ws_server.start())]
-    
-    # Get local network IP for diagnostics
-    local_ip = "your-local-ip"
-    try:
-        import socket
-        # Windows: Try to connect to router gateway
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("192.168.1.1", 80))
-        local_ip = s.getsockname()[0]
-        s.close()
-    except:
-        try:
-            # Fallback: resolve hostname
-            local_ip = socket.gethostbyname(socket.gethostname())
-        except:
-            pass
-    
-    MacroDeckLogger.info(None, f"WebSocket → ws://localhost:{port}  or  ws://{local_ip}:{port} from network")
 
     # 10. Web config UI
     if not getattr(args, "no_gui", False) and ConfigManager.get("gui_enabled", True):
@@ -168,7 +150,7 @@ async def _main_async(args: argparse.Namespace) -> None:
             runner = web.AppRunner(create_app())
             await runner.setup()
             await web.TCPSite(runner, "0.0.0.0", config_port).start()
-            MacroDeckLogger.info(None, f"Config UI → http://localhost:{config_port}  or  http://{local_ip}:{config_port} from network")
+            MacroDeckLogger.info(None, f"Config UI → http://localhost:{config_port}")
         except ImportError:
             MacroDeckLogger.warning(None, "aiohttp not installed — web config UI disabled")
         except Exception as exc:
@@ -190,6 +172,11 @@ async def _main_async(args: argparse.Namespace) -> None:
         hot_reload_watcher.start()
 
     MacroDeckLogger.info(None, "Macro Deck ready ✓")
+    MacroDeckLogger.info(None, f"  Button pad  → http://0.0.0.0:{config_port}")
+    MacroDeckLogger.info(None, f"  Admin UI    → http://0.0.0.0:{config_port}/admin")
+    MacroDeckLogger.info(None, f"  WebSocket   → ws://0.0.0.0:{port}")
+    MacroDeckLogger.info(None, "  ⚠ On the Raspberry Pi browser open: ")
+    MacroDeckLogger.info(None, f"    http://<this-machine-ip>:{config_port}")
 
     try:
         await _stop.wait()
