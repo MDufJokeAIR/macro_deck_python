@@ -42,7 +42,10 @@ def execute_button(button: "ActionButton", client_id: str) -> None:
     def _run() -> None:
         # 1. Evaluate conditions first (each condition may have its own action list)
         for cond in button.conditions:
-            result = evaluate_condition(cond.variable_name, cond.operator, cond.compare_value)
+            result = evaluate_condition(
+                cond.variable_name, cond.operator, cond.compare_value,
+                button_state=button.state,
+            )
             actions_to_run = cond.actions_true if result else cond.actions_false
             for entry in actions_to_run:
                 _run_action_entry(entry, client_id, button)

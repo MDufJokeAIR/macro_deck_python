@@ -35,6 +35,89 @@ logger = logging.getLogger("macro_deck.webui")
 _STATIC_DIR = Path(__file__).parent.parent / "gui" / "static"
 
 
+# ── live-push helper ──────────────────────────────────────────────────
+
+async def _push_buttons_to_clients(profile_id: str) -> None:
+    """After any button mutation, broadcast fresh BUTTONS to all pad clients
+    that are currently viewing the affected profile."""
+    try:
+        from macro_deck_python.websocket.server import _LIVE_INSTANCES
+        from macro_deck_python.websocket.protocol import encode
+        from macro_deck_python.utils.template import render_label
+        from macro_deck_python.services.variable_manager import VariableManager
+
+        profile = ProfileManager.get_profile(profile_id)
+        if profile is None:
+            return
+
+        folder = profile.folder
+
+        def _resolve_label(label: str) -> str:
+            return render_label(label, VariableManager.get_value)
+
+        def _btn_payload(pos, btn) -> dict:
+            row, col = pos.split("_")
+            base = {
+                "button_id":   btn.button_id,
+                "button_type": getattr(btn, "button_type", "button"),
+                "position":    pos,
+                "row":         int(row),
+                "col":         int(col),
+            }
+            btype = getattr(btn, "button_type", "button")
+            if btype == "slider":
+                sc = getattr(btn, "slider_config", {})
+                base.update({"slider_config": sc,
+                             "label": _resolve_label(sc.get("label", "")),
+                             "label_color": btn.label_color})
+            elif btype == "slider_occupied":
+                base.update({"slider_config": getattr(btn, "slider_config", {})})
+            else:
+                app = btn.resolve_appearance(VariableManager.get_value)
+                base.update({
+                    "label":            _resolve_label(app["label"]),
+                    "label_color":      app["label_color"],
+                    "label_font_size":  btn.label_font_size,
+                    "icon":             app["icon"],
+                    "background_color": app["background_color"],
+                    "state":            app["state"],
+                    "has_actions":      len(btn.actions) > 0 or len(btn.conditions) > 0,
+                })
+            return base
+
+        slider_cells: dict = {}
+        for slider in folder.sliders.values():
+            for cell in slider.occupied_cells:
+                slider_cells[cell] = slider.slider_id
+
+        message = encode(
+            "BUTTONS",
+            folder_id=folder.folder_id,
+            folder_name=folder.name,
+            columns=folder.columns,
+            rows=folder.rows,
+            buttons=[_btn_payload(pos, btn) for pos, btn in folder.buttons.items()],
+            sub_folders=[{"folder_id": sf.folder_id, "name": sf.name}
+                         for sf in folder.sub_folders],
+            slider_cells=slider_cells,
+        )
+
+        for server in _LIVE_INSTANCES:
+            for cid, info in list(server._clients.items()):
+                cp = server._clients.get(cid)
+                if cp is None:
+                    continue
+                from macro_deck_python.services.profile_manager import ProfileManager as PM
+                client_profile = PM.get_client_profile(cid)
+                if client_profile and client_profile.profile_id == profile_id:
+                    try:
+                        await info.ws.send(message)
+                    except Exception:
+                        pass
+    except Exception as exc:
+        logger.warning("_push_buttons_to_clients failed: %s", exc)
+
+
 # ── REST API handlers ─────────────────────────────────────────────────
 
 async def api_status(request: web.Request) -> web.Response:
@@ -50,6 +133,10 @@ async def api_get_profiles(request: web.Request) -> web.Response:
 async def api_create_profile(request: web.Request) -> web.Response:
     body = await request.json()
     p = ProfileManager.create_profile(body.get("name", "New Profile"))
+    # Pre-create auto-variables for all button positions in the default grid
+    for r in range(p.folder.rows):
+        for c in range(p.folder.columns):
+            _ensure_button_variable(p.name, f"{r}_{c}")
     return _json({"profile_id": p.profile_id, "name": p.name})
 
 
@@ -65,6 +152,36 @@ async def api_set_active_profile(request: web.Request) -> web.Response:
     return _json({"ok": ok})
 
 
+async def api_update_profile(request: web.Request) -> web.Response:
+    """PUT /api/profiles/{profile_id} — update name and/or grid dimensions."""
+    pid = request.match_info["profile_id"]
+    profile = ProfileManager.get_profile(pid)
+    if profile is None:
+        raise web.HTTPNotFound(reason="Profile not found")
+    body = await request.json()
+    if "name" in body:
+        profile.name = body["name"]
+    if "columns" in body:
+        try:
+            profile.folder.columns = max(1, min(24, int(body["columns"])))
+        except (TypeError, ValueError):
+            pass
+    if "rows" in body:
+        try:
+            profile.folder.rows = max(1, min(24, int(body["rows"])))
+        except (TypeError, ValueError):
+            pass
+    ProfileManager.save()
+    # Ensure auto-variables exist for every cell in the (possibly expanded) grid
+    for r in range(profile.folder.rows):
+        for c in range(profile.folder.columns):
+            _ensure_button_variable(profile.name, f"{r}_{c}")
+    return _json({"ok": True, "profile_id": profile.profile_id,
+                  "name": profile.name,
+                  "columns": profile.folder.columns,
+                  "rows": profile.folder.rows})
+
+
 async def api_get_buttons(request: web.Request) -> web.Response:
     pid = request.match_info["profile_id"]
     folder_id = request.rel_url.query.get("folder_id")
@@ -76,7 +193,45 @@ async def api_get_buttons(request: web.Request) -> web.Response:
         found = _find_folder(folder, folder_id)
         if found:
             folder = found
-    return _json(folder.to_dict())
+    # Inject position into each button dict so the editor JS can use btn.position
+    buttons_list = []
+    for pos, btn in folder.buttons.items():
+        d = btn.to_dict()
+        d["position"] = pos
+        buttons_list.append(d)
+    return _json({
+        "folder_id":   folder.folder_id,
+        "name":        folder.name,
+        "columns":     folder.columns,
+        "rows":        folder.rows,
+        "buttons":     buttons_list,
+        "sub_folders": [{"folder_id": sf.folder_id, "name": sf.name}
+                        for sf in folder.sub_folders],
+    })
+
+
+def _auto_var_name(profile_name: str, position: str) -> str:
+    """Build the canonical auto-variable name for a button position.
+    e.g. profile 'Game', position '0_2'  →  'ProfileGame_x1y3'  (1-based)
+    """
+    safe = "".join(c for c in profile_name if c.isalnum() or c == "_")
+    try:
+        row_s, col_s = position.split("_")
+        x = int(col_s) + 1   # 1-based column
+        y = int(row_s) + 1   # 1-based row
+    except (ValueError, AttributeError):
+        x, y = 1, 1
+    return f"Profile{safe}_x{x}y{y}"
+
+
+def _ensure_button_variable(profile_name: str, position: str) -> str:
+    """Create the auto-variable for this button if it doesn't already exist.
+    Returns the variable name."""
+    vname = _auto_var_name(profile_name, position)
+    if VariableManager.get_variable(vname) is None:
+        VariableManager.set_value(vname, False, VariableType.BOOL,
+                                  plugin_id=None, save=True)
+    return vname
 
 
 async def api_upsert_button(request: web.Request) -> web.Response:
@@ -95,7 +250,12 @@ async def api_upsert_button(request: web.Request) -> web.Response:
     btn = ActionButton.from_dict(body)
     folder.buttons[position] = btn
     ProfileManager.save()
-    return _json(btn.to_dict())
+    # Auto-create the positional variable if it doesn't exist yet
+    auto_var = _ensure_button_variable(profile.name, position)
+    asyncio.ensure_future(_push_buttons_to_clients(pid))
+    d = btn.to_dict()
+    d["auto_variable"] = auto_var
+    return _json(d)
 
 
 async def api_delete_button(request: web.Request) -> web.Response:
@@ -112,6 +272,7 @@ async def api_delete_button(request: web.Request) -> web.Response:
             folder = found
     folder.buttons.pop(position, None)
     ProfileManager.save()
+    asyncio.ensure_future(_push_buttons_to_clients(pid))
     return _json({"ok": True})
 
 
@@ -126,6 +287,45 @@ async def api_set_variable(request: web.Request) -> web.Response:
     vtype = VariableType(body.get("type", "String"))
     VariableManager.set_value(name, value, vtype)
     return _json({"ok": True})
+
+
+async def api_update_variable(request: web.Request) -> web.Response:
+    """PUT /api/variables/{name} — rename and/or retype a variable."""
+    old_name = request.match_info["name"]
+    body = await request.json()
+    new_name = body.get("name", old_name).strip()
+    new_type_str = body.get("type")
+
+    var = VariableManager.get_variable(old_name)
+    if var is None:
+        raise web.HTTPNotFound(reason=f"Variable not found: {old_name}")
+
+    new_type = VariableType(new_type_str) if new_type_str else var.type
+
+    if new_name != old_name:
+        # Rename: create under new name, delete old
+        VariableManager.set_value(new_name, var.value, new_type,
+                                  plugin_id=var.plugin_id, save=True)
+        VariableManager.delete(old_name)
+    else:
+        # Just retype
+        VariableManager.set_value(old_name, var.value, new_type,
+                                  plugin_id=var.plugin_id, save=True)
+
+    return _json({"ok": True, "name": new_name, "type": new_type.value})
+
+
+async def api_get_auto_variable(request: web.Request) -> web.Response:
+    """GET /api/profiles/{profile_id}/buttons/{position}/variable
+    Returns (and creates if needed) the auto-variable for a button."""
+    pid = request.match_info["profile_id"]
+    position = request.match_info["position"]
+    profile = ProfileManager.get_profile(pid)
+    if profile is None:
+        raise web.HTTPNotFound(reason="Profile not found")
+    vname = _ensure_button_variable(profile.name, position)
+    var = VariableManager.get_variable(vname)
+    return _json(var.to_dict() if var else {"name": vname})
 
 
 async def api_delete_variable(request: web.Request) -> web.Response:
@@ -227,6 +427,19 @@ async def serve_index(request: web.Request) -> web.Response:
 async def cors_middleware(app, handler):
     """Permissive CORS — allows the Raspberry Pi browser / any origin."""
     async def middleware(request):
+        # Block editor and admin from non-localhost
+        if request.path.startswith(('/editor', '/admin')):
+            peer = request.remote or ''
+            if peer not in ('127.0.0.1', '::1', 'localhost'):
+                raise web.HTTPForbidden(
+                    reason="Editor is only accessible from localhost for security reasons."
+                )
+        # Block all mutating API calls (POST/PUT/DELETE) from non-localhost
+        _WRITE_METHODS = ('POST', 'PUT', 'DELETE', 'PATCH')
+        if request.method in _WRITE_METHODS and request.path.startswith('/api/'):
+            peer = request.remote or ''
+            if peer not in ('127.0.0.1', '::1', 'localhost'):
+                raise web.HTTPForbidden(reason="API writes are only allowed from localhost.")
         if request.method == "OPTIONS":
             response = web.Response()
         else:
@@ -291,12 +504,16 @@ def create_app() -> "web.Application":
     app.router.add_post("/api/profiles", api_create_profile)
     app.router.add_delete("/api/profiles/{profile_id}", api_delete_profile)
     app.router.add_post("/api/profiles/{profile_id}/activate", api_set_active_profile)
+    app.router.add_put("/api/profiles/{profile_id}", api_update_profile)
     app.router.add_get("/api/profiles/{profile_id}/buttons", api_get_buttons)
     app.router.add_post("/api/profiles/{profile_id}/buttons", api_upsert_button)
     app.router.add_delete("/api/profiles/{profile_id}/buttons/{position}", api_delete_button)
     app.router.add_get("/api/variables", api_get_variables)
     app.router.add_post("/api/variables", api_set_variable)
+    app.router.add_put("/api/variables/{name}", api_update_variable)
     app.router.add_delete("/api/variables/{name}", api_delete_variable)
+    app.router.add_get("/api/profiles/{profile_id}/buttons/{position}/variable",
+                       api_get_auto_variable)
     app.router.add_get("/api/plugins", api_get_plugins)
     app.router.add_get("/api/actions", api_get_actions)
     app.router.add_get("/api/config", api_get_config)

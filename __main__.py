@@ -108,6 +108,24 @@ async def _main_async(args: argparse.Namespace) -> None:
     MacroDeckLogger.info(None,
         f"Profiles: {len(ProfileManager.get_all())}  active={active.name if active else 'none'}")
 
+    # 3b. Ensure auto-variables exist for every button position in every profile
+    #     (covers profiles created before this feature was added)
+    from macro_deck_python.models.variable import VariableType as _VT
+    _created = 0
+    for _p in ProfileManager.get_all():
+        for _r in range(_p.folder.rows):
+            for _c in range(_p.folder.columns):
+                _pos  = f"{_r}_{_c}"
+                _safe = "".join(ch for ch in _p.name if ch.isalnum() or ch == "_")
+                _vname = f"Profile{_safe}_x{_c+1}y{_r+1}"
+                if VariableManager.get_variable(_vname) is None:
+                    VariableManager.set_value(_vname, False, _VT.BOOL,
+                                              plugin_id=None, save=False)
+                    _created += 1
+    if _created:
+        VariableManager.save()
+        MacroDeckLogger.info(None, f"Auto-variables seeded: {_created}")
+
     # 4. Built-in plugins
     builtin_dir = Path(__file__).parent / "plugins" / "builtin"
     PluginManager.set_plugins_dir(builtin_dir)

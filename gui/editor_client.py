@@ -45,7 +45,7 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);
   flex-shrink:0;min-height:48px}
 #topbar h1{font-size:1rem;color:var(--accent);margin-right:6px;white-space:nowrap}
 #workspace{display:flex;flex:1;overflow:hidden}
-#grid-area{flex:1;overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+#grid-area{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center}
 #inspector{width:340px;flex-shrink:0;background:var(--surface);
   border-left:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column}
 #inspector.hidden{display:none}
@@ -72,7 +72,7 @@ select.ctrl:focus,input.ctrl:focus{border-color:var(--accent)}
   background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
   display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:3px;cursor:pointer;padding:6px;overflow:hidden;position:relative;
-  min-height:70px;transition:border-color var(--transition),background var(--transition);
+  transition:border-color var(--transition),background var(--transition);
   user-select:none}
 .cell:hover{border-color:var(--accent);background:var(--surface3)}
 .cell.empty{border-style:dashed;border-color:var(--border);background:transparent;
@@ -84,7 +84,7 @@ select.ctrl:focus,input.ctrl:focus{border-color:var(--accent)}
 .cell.slider-head{background:#0f2040;border-color:var(--accent)88;border-style:solid}
 .cell.slider-occ{background:#0a1a30;border-color:var(--accent)33;border-style:dashed;
   cursor:not-allowed}
-.cell-icon{width:32px;height:32px;object-fit:contain}
+.cell-icon{width:60%;height:60%;object-fit:contain;flex-shrink:0}
 .cell-label{font-size:.65rem;text-align:center;line-height:1.2;max-width:100%;
   overflow:hidden;word-break:break-all;display:-webkit-box;
   -webkit-line-clamp:3;-webkit-box-orient:vertical}
@@ -218,6 +218,7 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
   <h1>🎛 Macro Deck</h1>
   <div class="sep"></div>
   <select class="ctrl" id="profile-sel" onchange="onProfileChange(this.value)"></select>
+  <button class="btn btn-ghost btn-sm" onclick="renameProfile()">✏ Rename</button>
   <button class="btn btn-ghost btn-sm" onclick="createProfile()">+ Profile</button>
   <div class="sep"></div>
   <label style="font-size:.8rem;color:var(--muted)">Columns</label>
@@ -311,12 +312,19 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
         </div>
       </div>
       <div class="field">
-        <label>State binding (Bool variable → on/off)</label>
-        <select id="f-state-bind" onchange="debounceSave()">
-          <option value="">— none —</option>
-        </select>
+        <label>State binding (variable → on/off)</label>
+        <div style="display:flex;gap:4px;align-items:center">
+          <select id="f-state-bind" onchange="debounceSave()" style="flex:1">
+            <option value="">— none —</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" title="Rename or retype this variable"
+                  onclick="editBoundVariable()" style="flex-shrink:0">✏</button>
+        </div>
+        <div id="auto-var-hint" style="font-size:.7rem;color:var(--accent);margin-top:2px;display:none"></div>
       </div>
       <button class="btn btn-primary" onclick="saveButton()">Save button</button>
+      <button class="btn btn-sm" style="background:var(--danger);color:#fff;margin-top:4px"
+              onclick="deleteCurrentButton()">🗑 Delete button</button>
     </div>
 
     <!-- Actions tab -->
@@ -525,6 +533,21 @@ async function createProfile() {
   }
 }
 
+async function renameProfile() {
+  const current = profiles.find(p => p.id === activeProfileId);
+  const newName = prompt('Rename profile:', current?.name || '');
+  if (!newName || newName === current?.name) return;
+  const r = await PUT(`/api/profiles/${activeProfileId}`, { name: newName });
+  if (!r.error) {
+    const p = profiles.find(p => p.id === activeProfileId);
+    if (p) p.name = newName;
+    renderProfileSelect();
+    toast('Profile renamed ✓');
+  } else {
+    toast('Rename failed: ' + r.error, true);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Grid loading
 // ═══════════════════════════════════════════════════════════════════
@@ -557,16 +580,30 @@ async function loadGrid() {
 // ═══════════════════════════════════════════════════════════════════
 function renderGrid() {
   const grid = document.getElementById('grid');
-  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  grid.style.gridTemplateRows    = `repeat(${rows}, 1fr)`;
+
+  // ── Compute square cell size ──────────────────────────────────────
+  const GAP       = 5;
+  const PADDING   = 24;   // visual breathing room around the grid
+  const TOPBAR_H  = document.getElementById('topbar').offsetHeight || 48;
+  const insp      = document.getElementById('inspector');
+  const inspW     = insp.classList.contains('hidden') ? 0 : (insp.offsetWidth || 340);
+  const availW    = window.innerWidth  - inspW - PADDING * 2;
+  const availH    = window.innerHeight - TOPBAR_H - PADDING * 2;
+  const cellW     = Math.floor((availW - GAP * (cols - 1)) / cols);
+  const cellH     = Math.floor((availH - GAP * (rows - 1)) / rows);
+  const cell      = Math.max(20, Math.min(cellW, cellH));   // square, no hard min overflow
+
+  grid.style.gridTemplateColumns = `repeat(${cols}, ${cell}px)`;
+  grid.style.gridTemplateRows    = `repeat(${rows}, ${cell}px)`;
+  grid.style.gap                 = `${GAP}px`;
   grid.innerHTML = '';
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const pos = `${r}_${c}`;
       const btn = buttons[pos];
-      const cell = makeCell(pos, btn);
-      grid.appendChild(cell);
+      const cellEl = makeCell(pos, btn);
+      grid.appendChild(cellEl);
     }
   }
 }
@@ -642,7 +679,7 @@ function makeCell(pos, btn) {
 // ═══════════════════════════════════════════════════════════════════
 // Cell interaction
 // ═══════════════════════════════════════════════════════════════════
-function onCellClick(pos, btn) {
+async function onCellClick(pos, btn) {
   if (sliderMode) { onSliderModeClick(pos); return; }
   selectedPos = pos;
   document.querySelectorAll('.cell.selected').forEach(el => el.classList.remove('selected'));
@@ -675,7 +712,7 @@ function onCellClick(pos, btn) {
   }
   populateStylePanel(editBtn);
   populateActionsPanel(editBtn);
-  populateVariableSelect();
+  await populateVariableSelect();
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -688,12 +725,14 @@ function openInspector(title, isSlider) {
   slTab.style.display = isSlider ? '' : 'none';
   if (isSlider) showTab('slider');
   else showTab('style');
+  renderGrid();
 }
 
 function closeInspector() {
   document.getElementById('inspector').classList.add('hidden');
   selectedPos = null;
   document.querySelectorAll('.cell.selected').forEach(el => el.classList.remove('selected'));
+  renderGrid();
 }
 
 function showTab(name) {
@@ -754,12 +793,85 @@ function clearIcon() {
   document.getElementById('icon-file').value = '';
 }
 
-function populateVariableSelect() {
-  const sel = document.getElementById('f-state-bind');
-  const cur = editBtn?.state_binding || '';
-  const bools = allVariables.filter(v => v.type === 'Bool');
-  sel.innerHTML = `<option value="">— none —</option>` +
-    bools.map(v => `<option value="${v.name}" ${v.name===cur?'selected':''}>${v.name}</option>`).join('');
+async function populateVariableSelect() {
+  const sel  = document.getElementById('f-state-bind');
+  const hint = document.getElementById('auto-var-hint');
+  const cur  = editBtn?.state_binding || '';
+
+  // Fetch the auto-variable for this button position
+  let autoVarName = null;
+  if (activeProfileId && selectedPos) {
+    try {
+      const av = await GET(`/api/profiles/${activeProfileId}/buttons/${selectedPos}/variable`);
+      if (av?.name) autoVarName = av.name;
+    } catch(e) {}
+  }
+
+  // Refresh allVariables from server so rename reflects immediately
+  try {
+    allVariables = await GET('/api/variables') || allVariables;
+  } catch(e) {}
+
+  // Build options: auto-var first (if exists), then all others
+  const autoOption = autoVarName
+    ? `<option value="${autoVarName}" ${cur===autoVarName?'selected':''}>${autoVarName} ★</option>`
+    : '';
+  const rest = allVariables
+    .filter(v => v.name !== autoVarName)
+    .map(v => `<option value="${v.name}" ${v.name===cur?'selected':''}>${v.name} (${v.type})</option>`)
+    .join('');
+
+  sel.innerHTML = `<option value="">— none —</option>${autoOption}${rest}`;
+
+  // Show hint when auto-var is selected or as default suggestion
+  if (autoVarName) {
+    hint.style.display = '';
+    hint.textContent   = `Auto-variable: ${autoVarName}`;
+  } else {
+    hint.style.display = 'none';
+  }
+}
+
+async function editBoundVariable() {
+  const sel     = document.getElementById('f-state-bind');
+  const varName = sel.value;
+  if (!varName) {
+    toast('Select a variable first', true);
+    return;
+  }
+  const newName = prompt('Variable name:', varName);
+  if (!newName) return;
+
+  const allTypes = ['Bool', 'Integer', 'Float', 'String'];
+  const cur = allVariables.find(v => v.name === varName);
+  const curType = cur?.type || 'Bool';
+  const newType = prompt(
+    `Type (${allTypes.join(' / ')}):`,
+    curType
+  );
+  if (!newType || !allTypes.includes(newType)) {
+    toast('Invalid type', true);
+    return;
+  }
+
+  const r = await PUT(`/api/variables/${encodeURIComponent(varName)}`,
+                      { name: newName, type: newType });
+  if (r.ok) {
+    // Update local cache
+    const idx = allVariables.findIndex(v => v.name === varName);
+    if (idx !== -1) {
+      allVariables[idx].name = newName;
+      allVariables[idx].type = newType;
+    }
+    // If this was the bound variable, update editBtn
+    if (editBtn?.state_binding === varName) {
+      editBtn.state_binding = newName;
+    }
+    await populateVariableSelect();
+    toast(`Variable renamed to ${newName} (${newType}) ✓`);
+  } else {
+    toast('Rename failed: ' + (r.error || 'unknown'), true);
+  }
 }
 
 function collectStyleFromPanel() {
@@ -819,19 +931,163 @@ function makeActionItem(entry, idx) {
     if (isMacro) {
       wrap.appendChild(makeKeyPicker(entry, idx));
     } else {
-      const cfg = document.createElement('div');
-      cfg.className = 'action-cfg';
-      cfg.innerHTML = `
-        <div class="field">
-          <label>Configuration (JSON)</label>
-          <textarea id="cfg-${idx}" onchange="updateActionCfg(${idx},this.value)"
-            >${escHtml(entry.configuration||'{}')}</textarea>
-        </div>`;
-      wrap.appendChild(cfg);
+      const cfgDiv = makeSmartActionConfig(entry, idx);
+      wrap.appendChild(cfgDiv);
     }
   }
   return wrap;
 }
+
+function _varOptions(selected) {
+  return allVariables.map(v =>
+    `<option value="${v.name}" ${v.name===selected?'selected':''}>${v.name} (${v.type})</option>`
+  ).join('');
+}
+
+function makeSmartActionConfig(entry, idx) {
+  let cfg = {};
+  try { cfg = JSON.parse(entry.configuration || '{}'); } catch(e) {}
+
+  const div = document.createElement('div');
+  div.className = 'action-cfg';
+
+  const aid = entry.action_id;
+
+  // ── Toggle Variable ──────────────────────────────────────────────
+  if (aid === 'toggle_variable') {
+    div.innerHTML = `
+      <div class="field">
+        <label>Variable to toggle (Bool)</label>
+        <select onchange="updateSmartCfg(${idx},'variable_name',this.value)">
+          <option value="">— select —</option>
+          ${_varOptions(cfg.variable_name||'')}
+        </select>
+      </div>`;
+    return div;
+  }
+
+  // ── Set Variable ─────────────────────────────────────────────────
+  if (aid === 'set_variable') {
+    div.innerHTML = `
+      <div class="field">
+        <label>Variable</label>
+        <select onchange="updateSmartCfg(${idx},'variable_name',this.value)">
+          <option value="">— select —</option>
+          ${_varOptions(cfg.variable_name||'')}
+        </select>
+      </div>
+      <div class="field">
+        <label>Value</label>
+        <input class="ctrl" value="${escHtml(String(cfg.value??''))}"
+          oninput="updateSmartCfg(${idx},'value',this.value)">
+      </div>
+      <div class="field">
+        <label>Type</label>
+        <select onchange="updateSmartCfg(${idx},'type',this.value)">
+          ${['Bool','Integer','Float','String'].map(t =>
+            `<option ${(cfg.type||'String')===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>`;
+    return div;
+  }
+
+  // ── Hotkey ───────────────────────────────────────────────────────
+  if (aid === 'hotkey') {
+    div.innerHTML = `
+      <div class="field">
+        <label>Keys (e.g. ctrl+c, ctrl+shift+t)</label>
+        <input class="ctrl" value="${escHtml(cfg.keys||'')}"
+          placeholder="ctrl+c"
+          oninput="updateSmartCfg(${idx},'keys',this.value)">
+      </div>`;
+    return div;
+  }
+
+  // ── Type Text ────────────────────────────────────────────────────
+  if (aid === 'type_text') {
+    div.innerHTML = `
+      <div class="field">
+        <label>Text to type</label>
+        <input class="ctrl" value="${escHtml(cfg.text||'')}"
+          oninput="updateSmartCfg(${idx},'text',this.value)">
+      </div>
+      <div class="field">
+        <label>Interval between chars (s)</label>
+        <input class="ctrl" type="number" min="0" step="0.01"
+          value="${cfg.interval??0.03}"
+          oninput="updateSmartCfg(${idx},'interval',parseFloat(this.value))">
+      </div>`;
+    return div;
+  }
+
+  // ── Key Press ────────────────────────────────────────────────────
+  if (aid === 'key_press') {
+    div.innerHTML = `
+      <div class="field">
+        <label>Key</label>
+        <input class="ctrl" value="${escHtml(cfg.key||'')}"
+          placeholder="f5, enter, space…"
+          oninput="updateSmartCfg(${idx},'key',this.value)">
+      </div>`;
+    return div;
+  }
+
+  // ── Run Command ──────────────────────────────────────────────────
+  if (aid === 'run_command') {
+    div.innerHTML = `
+      <div class="field">
+        <label>Command</label>
+        <input class="ctrl" value="${escHtml(cfg.command||'')}"
+          oninput="updateSmartCfg(${idx},'command',this.value)">
+      </div>
+      <div class="field" style="flex-direction:row;align-items:center;gap:8px">
+        <input type="checkbox" ${cfg.wait?'checked':''} id="wait-${idx}"
+          onchange="updateSmartCfg(${idx},'wait',this.checked)">
+        <label for="wait-${idx}">Wait for completion</label>
+      </div>`;
+    return div;
+  }
+
+  // ── Open URL ─────────────────────────────────────────────────────
+  if (aid === 'open_url') {
+    div.innerHTML = `
+      <div class="field">
+        <label>URL</label>
+        <input class="ctrl" value="${escHtml(cfg.url||'')}"
+          placeholder="https://…"
+          oninput="updateSmartCfg(${idx},'url',this.value)">
+      </div>`;
+    return div;
+  }
+
+  // ── Delay ────────────────────────────────────────────────────────
+  if (aid === 'delay') {
+    div.innerHTML = `
+      <div class="field">
+        <label>Duration (milliseconds)</label>
+        <input class="ctrl" type="number" min="1" value="${cfg.milliseconds??500}"
+          oninput="updateSmartCfg(${idx},'milliseconds',parseInt(this.value))">
+      </div>`;
+    return div;
+  }
+
+  // ── Generic JSON fallback ────────────────────────────────────────
+  div.innerHTML = `
+    <div class="field">
+      <label>Configuration (JSON)</label>
+      <textarea id="cfg-${idx}" onchange="updateActionCfg(${idx},this.value)"
+        >${escHtml(entry.configuration||'{}')}</textarea>
+    </div>`;
+  return div;
+}
+
+window.updateSmartCfg = function(idx, key, value) {
+  if (!editBtn?.actions?.[idx]) return;
+  let cfg = {};
+  try { cfg = JSON.parse(editBtn.actions[idx].configuration || '{}'); } catch(e) {}
+  cfg[key] = value;
+  editBtn.actions[idx].configuration = JSON.stringify(cfg);
+};
 
 function makeKeyPicker(entry, idx) {
   let cfg = {};
@@ -968,6 +1224,37 @@ function addAction() {
 // ═══════════════════════════════════════════════════════════════════
 // Conditions
 // ═══════════════════════════════════════════════════════════════════
+function _styleFields(prefix, i, style) {
+  // Inline style editor for one branch of a condition
+  style = style || {};
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px">
+      <div>
+        <label style="font-size:.7rem;color:var(--muted)">Label</label>
+        <input class="ctrl" style="width:100%;font-size:.75rem" value="${style.label||''}"
+          oninput="condStyle(${i},'${prefix}','label',this.value)">
+      </div>
+      <div>
+        <label style="font-size:.7rem;color:var(--muted)">Label colour</label>
+        <div style="display:flex;gap:4px">
+          <input type="color" value="${/^#[0-9a-fA-F]{6}$/.test(style.label_color||'')?style.label_color:'#ffffff'}"
+            oninput="condStyle(${i},'${prefix}','label_color',this.value)" style="width:32px;height:26px;border:none;border-radius:4px;cursor:pointer">
+          <input class="ctrl" style="flex:1;font-size:.75rem" value="${style.label_color||''}"
+            oninput="condStyle(${i},'${prefix}','label_color',this.value)">
+        </div>
+      </div>
+      <div>
+        <label style="font-size:.7rem;color:var(--muted)">Background</label>
+        <div style="display:flex;gap:4px">
+          <input type="color" value="${/^#[0-9a-fA-F]{6}$/.test(style.background_color||'')?style.background_color:'#000000'}"
+            oninput="condStyle(${i},'${prefix}','background_color',this.value)" style="width:32px;height:26px;border:none;border-radius:4px;cursor:pointer">
+          <input class="ctrl" style="flex:1;font-size:.75rem" value="${style.background_color||''}"
+            oninput="condStyle(${i},'${prefix}','background_color',this.value)">
+        </div>
+      </div>
+    </div>`;
+}
+
 function renderConditions(conditions) {
   const list = document.getElementById('conditions-list');
   list.innerHTML = '';
@@ -976,27 +1263,79 @@ function renderConditions(conditions) {
     d.className = 'action-item';
     d.innerHTML = `
       <div class="action-item-header">
-        <span>If <b>${cond.variable_name||'?'}</b> ${cond.operator||'=='} <b>${cond.compare_value||'?'}</b></span>
+        <span style="font-size:.8rem">
+          If&nbsp;<b>${cond.variable_name||'?'}</b>&nbsp;${cond.operator||'=='}&nbsp;<b>${cond.compare_value||'?'}</b>
+          &nbsp;<span style="font-size:.7rem;color:var(--muted)">(use <code>_state</code> for button toggle)</span>
+        </span>
         <button class="action-del" onclick="deleteCondition(${i})">✕</button>
       </div>
-      <div style="font-size:.75rem;color:var(--muted)">
-        True: ${(cond.actions_true||[]).length} action(s) &nbsp;
-        False: ${(cond.actions_false||[]).length} action(s)
-      </div>`;
+
+      <details style="margin-top:6px">
+        <summary style="font-size:.75rem;cursor:pointer;color:var(--accent)">
+          ✅ When TRUE — ${(cond.actions_true||[]).length} action(s)
+        </summary>
+        ${_styleFields('style_true', i, cond.style_true)}
+        <div style="font-size:.72rem;color:var(--muted);margin-top:6px">
+          Actions: ${(cond.actions_true||[]).length} (edit via Actions tab — TODO inline)
+        </div>
+      </details>
+
+      <details style="margin-top:4px">
+        <summary style="font-size:.75rem;cursor:pointer;color:var(--muted)">
+          ❌ When FALSE — ${(cond.actions_false||[]).length} action(s)
+        </summary>
+        ${_styleFields('style_false', i, cond.style_false)}
+        <div style="font-size:.72rem;color:var(--muted);margin-top:6px">
+          Actions: ${(cond.actions_false||[]).length} (edit via Actions tab — TODO inline)
+        </div>
+      </details>`;
     list.appendChild(d);
   });
 }
 
+window.condStyle = function(i, branch, key, value) {
+  // Live-update a style field on a condition branch
+  if (!editBtn?.conditions?.[i]) return;
+  editBtn.conditions[i][branch] = editBtn.conditions[i][branch] || {};
+  editBtn.conditions[i][branch][key] = value;
+};
+
 function addCondition() {
-  const varName = prompt('Variable name:');
+  // Build a list of variable options to show in the prompt
+  const autoVarPrefix = activeProfileId && selectedPos
+    ? (() => {
+        // Derive the auto-var name client-side (mirrors server logic)
+        const profile = profiles.find(p => p.id === activeProfileId);
+        if (!profile) return null;
+        const safe = profile.name.replace(/[^a-zA-Z0-9_]/g, '');
+        const [r, c] = selectedPos.split('_').map(Number);
+        return `Profile${safe}_x${c+1}y${r+1}`;
+      })()
+    : null;
+
+  const varOptions = [
+    '_state',
+    ...(autoVarPrefix ? [autoVarPrefix + ' ★'] : []),
+    ...allVariables.filter(v => v.name !== autoVarPrefix).map(v => v.name),
+  ];
+  const varName = prompt(
+    'Variable name (or _state for button toggle):\n\nSuggested: ' + varOptions.slice(0,6).join(', '),
+    autoVarPrefix || '_state'
+  );
   if (!varName) return;
+  // Strip the ★ suffix if the user left it in
+  const cleanVar = varName.replace(/\s*★$/, '').trim();
   const op = prompt('Operator (==, !=, >, <, >=, <=):', '==');
   if (!op) return;
-  const val = prompt('Compare value:');
+  const defaultVal = cleanVar === '_state' ? 'True' : '';
+  const val = prompt('Compare value:', defaultVal);
   if (val === null) return;
   editBtn.conditions = editBtn.conditions || [];
-  editBtn.conditions.push({ variable_name:varName, operator:op, compare_value:val,
-                             actions_true:[], actions_false:[] });
+  editBtn.conditions.push({
+    variable_name: cleanVar, operator: op, compare_value: val,
+    actions_true: [], actions_false: [],
+    style_true: {}, style_false: {},
+  });
   renderConditions(editBtn.conditions);
 }
 
@@ -1168,6 +1507,13 @@ async function saveButton() {
   }
 }
 
+async function deleteCurrentButton() {
+  if (!selectedPos || !buttons[selectedPos]) return;
+  if (!confirm('Delete this button?')) return;
+  ctxPos = selectedPos;
+  await window.ctxDelete();
+}
+
 async function saveSlider() {
   if (!selectedPos) return;
   collectSliderFromPanel();
@@ -1249,8 +1595,8 @@ async function onDrop(e, targetPos) {
 async function resizeGrid() {
   const newCols = parseInt(document.getElementById('cols-inp').value) || 5;
   const newRows = parseInt(document.getElementById('rows-inp').value) || 3;
-  // Persist in config
-  await POST('/api/config', { deck_cols: newCols, deck_rows: newRows });
+  // Persist on the profile's folder (not global config)
+  await PUT(`/api/profiles/${activeProfileId}`, { columns: newCols, rows: newRows });
   cols = newCols; rows = newRows;
   renderGrid();
 }
@@ -1455,6 +1801,11 @@ function toast(msg, isErr=false) {
 // /api/keymap/groups is handled server-side (see web_config.py)
 
 boot();
+
+// Re-render grid on window resize so squares stay square
+window.addEventListener('resize', () => {
+  if (cols > 0 && rows > 0) renderGrid();
+});
 </script>
 </body>
 </html>"""

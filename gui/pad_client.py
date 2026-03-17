@@ -45,7 +45,7 @@ html,body{height:100%;overflow:hidden;background:#0d0d1a;color:#e0e0e0;
 
 /* ── Grid wrapper: centers the fixed-size grid on screen ── */
 #grid-wrap{display:flex;flex:1;align-items:center;justify-content:center;
-  height:calc(100vh - 32px);overflow:hidden}
+  height:calc(100vh - 32px);overflow:hidden;max-width:100vw}
 
 /* ── Grid: sized entirely by JS (square cells) ── */
 #grid{display:grid;gap:5px;flex-shrink:0}
@@ -282,13 +282,15 @@ function renderGrid(buttons, subFolders, sliderCells) {
   grid.innerHTML = '';
 
   // ── Compute square cell size ──────────────────────────────────────
-  const GAP = 5;
-  const availW = window.innerWidth;
-  const availH = window.innerHeight - 32; // subtract status bar
-  // Cell size that fits all columns within width, and all rows within height
-  const cellW = Math.floor((availW  - GAP * (currentColumns + 1)) / currentColumns);
-  const cellH = Math.floor((availH  - GAP * (currentRows    + 1)) / currentRows);
-  const cell  = Math.max(40, Math.min(cellW, cellH)); // square: pick the smaller axis
+  const GAP     = 5;
+  const PADDING = 8;   // breathing room each side
+  const availW  = window.innerWidth  - PADDING * 2;
+  const availH  = window.innerHeight - 32 - PADDING * 2; // subtract status bar
+  // Use (cols-1) gaps between cells, not (cols+1)
+  const cellW   = Math.floor((availW - GAP * (currentColumns - 1)) / currentColumns);
+  const cellH   = Math.floor((availH - GAP * (currentRows    - 1)) / currentRows);
+  // Square = smallest axis; no hard minimum so many buttons still fit on screen
+  const cell    = Math.max(20, Math.min(cellW, cellH));
 
   // Apply to grid: fixed pixel columns/rows so it doesn't stretch
   grid.style.gridTemplateColumns = `repeat(${currentColumns}, ${cell}px)`;

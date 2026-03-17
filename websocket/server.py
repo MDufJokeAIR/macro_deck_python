@@ -192,19 +192,19 @@ class MacroDeckServer:
             await info.ws.send(encode("ERROR", message="Button not found"))
             return
 
-        # Toggle state if state-binding not set
-        if btn.state_binding is None:
-            btn.state = not btn.state
-            ProfileManager.save()
-        else:
-            # State is driven by variable; nothing to toggle manually
+        # Only toggle state if a state_binding variable drives it;
+        # otherwise leave state as-is (changed only via Set Variable actions).
+        if btn.state_binding is not None:
+            # State is driven by variable; the variable-change hook will update it
             pass
 
         # Broadcast updated state to all clients
         await self._broadcast(encode("BUTTON_STATE", button_id=btn.button_id, state=btn.state))
 
-        # Execute actions in background
+        # Execute actions in background, then push fresh button layout so
+        # condition-driven appearance (label/color) re-evaluates on all clients
         execute_button(btn, info.client_id)
+        await self._send_buttons(info)
 
     async def _on_get_buttons(self, info: ClientInfo, msg: dict) -> None:
         await self._send_buttons(info, folder_id=msg.get("folder_id"))
@@ -267,13 +267,6 @@ class MacroDeckServer:
         def _resolve_label(label: str) -> str:
             return render_label(label, VariableManager.get_value)
 
-        def _resolve_state(btn) -> bool:
-            if btn.state_binding:
-                val = VariableManager.get_value(btn.state_binding)
-                if val is not None:
-                    return bool(val)
-            return btn.state
-
         def _button_payload(pos, btn) -> dict:
             row, col = pos.split("_")
             base = {
@@ -294,14 +287,16 @@ class MacroDeckServer:
             elif btype == "slider_occupied":
                 base.update({"slider_config": getattr(btn, "slider_config", {})})
             else:
+                # Resolve appearance through conditions
+                app = btn.resolve_appearance(VariableManager.get_value)
                 base.update({
-                    "label":          _resolve_label(btn.label),
-                    "label_color":    btn.label_color,
-                    "label_font_size": btn.label_font_size,
-                    "icon":           btn.icon,
-                    "background_color": btn.background_color,
-                    "state":          _resolve_state(btn),
-                    "has_actions":    len(btn.actions) > 0 or len(btn.conditions) > 0,
+                    "label":            _resolve_label(app["label"]),
+                    "label_color":      app["label_color"],
+                    "label_font_size":  btn.label_font_size,
+                    "icon":             app["icon"],
+                    "background_color": app["background_color"],
+                    "state":            app["state"],
+                    "has_actions":      len(btn.actions) > 0 or len(btn.conditions) > 0,
                 })
             return base
 
@@ -361,22 +356,30 @@ class MacroDeckServer:
         )
 
     async def _push_state_bound_buttons(self, variable_name: str) -> None:
-        """When a Bool variable changes, push updated states to all clients."""
+        """When a variable changes, update state on any bound buttons then
+        push a full BUTTONS message so condition-driven appearance re-evaluates."""
+        affected: set = set()
         for info in list(self._clients.values()):
             profile = ProfileManager.get_client_profile(info.client_id)
             if profile is None:
                 continue
+            changed = False
             for pos, btn in profile.folder.buttons.items():
                 if btn.state_binding == variable_name:
                     new_state = bool(VariableManager.get_value(variable_name))
                     if btn.state != new_state:
                         btn.state = new_state
-                    try:
-                        await info.ws.send(
-                            encode("BUTTON_STATE", button_id=btn.button_id, state=btn.state)
-                        )
-                    except Exception:
-                        pass
+                        changed = True
+            if changed:
+                affected.add(info.client_id)
+        # Push a full BUTTONS refresh to each affected client so colours update
+        for client_id in affected:
+            info = self._clients.get(client_id)
+            if info:
+                try:
+                    await self._send_buttons(info)
+                except Exception:
+                    pass
 
     # ── slider handlers ───────────────────────────────────────────────
 

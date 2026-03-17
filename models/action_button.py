@@ -42,20 +42,31 @@ class ActionEntry:
 
 @dataclass
 class Condition:
-    """Condition block: if variable <op> value → run actions_true, else actions_false."""
+    """Condition block: if variable <op> value → run actions_true, else actions_false.
+
+    style_true / style_false are optional appearance overrides applied when the
+    condition evaluates to True / False.  Each is a dict with any subset of:
+      { "label": str, "label_color": str, "background_color": str, "icon": str|None }
+
+    Use variable_name="_state" to test the button's own toggle state (True/False).
+    """
     variable_name: str
     operator: str          # ==, !=, >, <, >=, <=
     compare_value: str
     actions_true: List[ActionEntry] = field(default_factory=list)
     actions_false: List[ActionEntry] = field(default_factory=list)
+    style_true:  dict = field(default_factory=dict)   # appearance when condition is True
+    style_false: dict = field(default_factory=dict)   # appearance when condition is False
 
     def to_dict(self) -> dict:
         return {
             "variable_name": self.variable_name,
             "operator": self.operator,
             "compare_value": self.compare_value,
-            "actions_true": [a.to_dict() for a in self.actions_true],
+            "actions_true":  [a.to_dict() for a in self.actions_true],
             "actions_false": [a.to_dict() for a in self.actions_false],
+            "style_true":    self.style_true,
+            "style_false":   self.style_false,
         }
 
     @staticmethod
@@ -66,6 +77,8 @@ class Condition:
             compare_value=d["compare_value"],
             actions_true=[ActionEntry.from_dict(a) for a in d.get("actions_true", [])],
             actions_false=[ActionEntry.from_dict(a) for a in d.get("actions_false", [])],
+            style_true=d.get("style_true", {}),
+            style_false=d.get("style_false", {}),
         )
 
 
@@ -81,11 +94,34 @@ class ActionButton:
     state_binding: Optional[str] = None  # variable name (Bool)
     actions: List[ActionEntry] = field(default_factory=list)
     conditions: List[Condition] = field(default_factory=list)
-    # slider support
     button_type: str = "button"          # "button" | "slider" | "slider_occupied"
     slider_config: dict = field(default_factory=dict)
-    # Slider extension
-    button_type: str = "button"          # "button" | "slider"
+
+    def resolve_appearance(self, get_variable) -> dict:
+        """Return the effective {label, label_color, background_color, icon, state}
+        after evaluating all conditions.  Conditions are applied in order; the last
+        matching condition wins.  get_variable(name) -> value (or None)."""
+        from macro_deck_python.utils.condition import evaluate_condition
+        result = {
+            "label":            self.label,
+            "label_color":      self.label_color,
+            "background_color": self.background_color,
+            "icon":             self.icon,
+            "state":            self.state,
+        }
+        for cond in self.conditions:
+            try:
+                matched = evaluate_condition(
+                    cond.variable_name, cond.operator, cond.compare_value,
+                    button_state=self.state, get_variable=get_variable,
+                )
+                style = cond.style_true if matched else cond.style_false
+                for key in ("label", "label_color", "background_color", "icon"):
+                    if style.get(key) not in (None, ""):
+                        result[key] = style[key]
+            except Exception:
+                pass
+        return result
 
     def to_dict(self) -> dict:
         return {
