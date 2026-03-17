@@ -7,9 +7,36 @@ Turns any phone, tablet, or Raspberry Pi browser into a programmable macro pad.
 
 ## Quick Start
 
+### Windows (PowerShell)
+
+```powershell
+# Create and activate virtual environment
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+
+# Install dependencies
+pip install websockets aiohttp cryptography psutil
+
+# Run
+python -m macro_deck_python
+
+# Create a new plugin
+python -m macro_deck_python new-plugin "My Plugin" --id me.myplugin
+```
+
+> **Note:** If you get an execution policy error, run this once before activating:
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+> ```
+
+### Linux / macOS (Bash)
+
 ```bash
-# Install
-python3 -m venv venv && source venv/bin/activate
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
 pip install websockets aiohttp cryptography psutil
 
 # Run
@@ -98,7 +125,7 @@ macro_deck_python/
 ## CLI Options
 
 ```
-python3 -m macro_deck_python [command] [options]
+python -m macro_deck_python [command] [options]
 
 Commands:
   (none / start)      Start the server
@@ -220,12 +247,20 @@ from macro_deck_python.sdk import (
 
 ### Scaffold
 
+#### Windows (PowerShell)
+```powershell
+python -m macro_deck_python new-plugin "My Plugin" `
+  --id me.myplugin --author "Me" --style decorator
+```
+
+#### Linux / macOS (Bash)
 ```bash
 python3 -m macro_deck_python new-plugin "My Plugin" \
   --id me.myplugin --author "Me" --style decorator
-# Creates ~/.macro_deck/plugins/me.myplugin/ with
-#   main.py  manifest.json  requirements.txt  config.json  README.md
 ```
+
+Creates `~/.macro_deck/plugins/me.myplugin/` with:
+`main.py`, `manifest.json`, `requirements.txt`, `config.json`, `README.md`
 
 Add pip dependencies to `requirements.txt` — they auto-install on load.  
 Edit `main.py` and save — Macro Deck hot-reloads within ~2 seconds.
@@ -297,10 +332,17 @@ curl http://<server-ip>:8192/api/info
 
 ## Tests
 
+### Windows (PowerShell)
+```powershell
+python -m unittest discover -s tests -p "test_*.py" -v
+```
+
+### Linux / macOS (Bash)
 ```bash
 python3 -m unittest discover -s tests -p "test_*.py" -v
-# 351 tests, 0 failures
 ```
+
+351 tests, 0 failures.
 
 ---
 
