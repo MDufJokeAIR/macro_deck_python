@@ -222,6 +222,64 @@ async def serve_index(request: web.Request) -> web.Response:
     return web.Response(text=_FALLBACK_HTML, content_type="text/html")
 
 
+# ── CORS middleware ───────────────────────────────────────────────────
+
+async def cors_middleware(app, handler):
+    """Permissive CORS — allows the Raspberry Pi browser / any origin."""
+    async def middleware(request):
+        if request.method == "OPTIONS":
+            response = web.Response()
+        else:
+            try:
+                response = await handler(request)
+            except web.HTTPException as exc:
+                response = exc
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response
+    return middleware
+
+
+# ── missing route handlers ────────────────────────────────────────────
+
+async def serve_pad(request: web.Request) -> web.Response:
+    """Serve the button-pad client HTML."""
+    return web.Response(text=get_pad_html(), content_type="text/html")
+
+
+async def serve_editor(request: web.Request) -> web.Response:
+    """Serve the button editor HTML."""
+    from macro_deck_python.gui.editor_client import get_editor_html
+    return web.Response(text=get_editor_html(), content_type="text/html")
+
+
+async def api_info(request: web.Request) -> web.Response:
+    """Return basic server info (version, websocket port)."""
+    from macro_deck_python.core.config_manager import ConfigManager
+    return _json({
+        "app": "macro_deck_python",
+        "ws_port": ConfigManager.get("websocket_port", 8191),
+        "http_port": ConfigManager.get("http_port", 8192),
+    })
+
+
+async def api_keymap_groups(request: web.Request) -> web.Response:
+    """Return keyboard key groups for the editor UI."""
+    try:
+        from macro_deck_python.plugins.builtin.keyboard_macro.key_map import KEY_GROUPS, KEY_MAP
+        result = {}
+        for group, keys in KEY_GROUPS.items():
+            result[group] = [
+                {"key": k, "label": KEY_MAP[k].get("label", k)}
+                for k in keys
+                if k in KEY_MAP
+            ]
+        return _json(result)
+    except ImportError:
+        return _json({})
+
+
 # ── app factory ───────────────────────────────────────────────────────
 
 def create_app() -> "web.Application":
@@ -249,6 +307,7 @@ def create_app() -> "web.Application":
 
     _register_icon_routes(app)
     _register_macrokeys_routes(app)
+    _register_slider_routes(app)
     if _STATIC_DIR.exists():
         app.router.add_static("/static", _STATIC_DIR)
     app.router.add_get("/api/info", api_info)

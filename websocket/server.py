@@ -34,6 +34,22 @@ from macro_deck_python.models.slider import SliderWidget
 
 logger = logging.getLogger("macro_deck.websocket")
 
+# ── suppress harmless websockets noise from plain-HTTP / TCP probes ──────────
+class _WsNoiseFilter(logging.Filter):
+    """Suppress harmless websockets handshake errors caused by plain-HTTP probes."""
+    _SKIP = (
+        "invalid Connection header",
+        "did not receive a valid HTTP request",
+        "connection closed while reading HTTP request",
+        "connection rejected (200 OK)",
+    )
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(skip in msg for skip in self._SKIP)
+
+logging.getLogger("websockets.server").addFilter(_WsNoiseFilter())
+# ─────────────────────────────────────────────────────────────────────────────
+
 DEFAULT_PORT = 8191
 API_VERSION = 20   # matches Macro Deck 2.x wire protocol version
 
@@ -73,6 +89,7 @@ class MacroDeckServer:
         self.host = host
         self.port = port
         self._clients: Dict[str, ClientInfo] = {}   # client_id → ClientInfo
+        self._loop: Optional[asyncio.AbstractEventLoop] = None  # set in start()
         _LIVE_INSTANCES.add(self)
 
         # Register variable-change hook to push updates to all clients
@@ -325,18 +342,23 @@ class MacroDeckServer:
             self._clients.pop(cid, None)
 
     def _on_variable_changed(self, variable) -> None:
-        """Called from any thread when a variable changes."""
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(
-                    self._broadcast(encode("VARIABLE_CHANGED", variable=variable.to_dict()))
-                )
-        except RuntimeError:
-            pass
+        """Called from any thread when a variable changes.
 
-        # Update state-bound buttons
-        asyncio.ensure_future(self._push_state_bound_buttons(variable.name))
+        Uses run_coroutine_threadsafe so it's safe to call from background
+        threads (e.g. the sys-vars polling thread). asyncio.ensure_future /
+        get_event_loop() are NOT thread-safe in Python 3.10+.
+        """
+        loop = self._loop
+        if loop is None or not loop.is_running():
+            return
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast(encode("VARIABLE_CHANGED", variable=variable.to_dict())),
+            loop,
+        )
+        asyncio.run_coroutine_threadsafe(
+            self._push_state_bound_buttons(variable.name),
+            loop,
+        )
 
     async def _push_state_bound_buttons(self, variable_name: str) -> None:
         """When a Bool variable changes, push updated states to all clients."""
@@ -355,9 +377,6 @@ class MacroDeckServer:
                         )
                     except Exception:
                         pass
-
-    # ── start ─────────────────────────────────────────────────────────
-
 
     # ── slider handlers ───────────────────────────────────────────────
 
@@ -447,17 +466,38 @@ class MacroDeckServer:
         else:
             await info.ws.send(encode("ERROR", message="Could not update slider"))
 
+    # ── start ─────────────────────────────────────────────────────────
+
     async def start(self) -> None:
         if not _WEBSOCKETS_AVAILABLE:
             raise ImportError("Install websockets: pip install websockets")
+        self._loop = asyncio.get_running_loop()   # capture loop for thread-safe callbacks
+        self.port = int(self.port)  # guard against port being passed as a string
         logger.info("Starting WebSocket server on ws://%s:%d", self.host, self.port)
+
+        async def _process_request(connection, request):
+            """Return 200 OK for plain HTTP probes so they don't spam the log."""
+            upgrade = request.headers.get("Upgrade", "").lower()
+            if upgrade != "websocket":
+                from websockets.http11 import Response
+                from websockets.datastructures import Headers
+                return Response(
+                    status_code=200,
+                    reason_phrase="OK",
+                    headers=Headers([
+                        ("Content-Type", "text/plain"),
+                        ("Content-Length", "2"),
+                    ]),
+                    body=b"OK",
+                )
+            return None   # let websockets handle the upgrade normally
+
         async with _websockets.serve(
             self.handler, self.host, self.port,
+            process_request=_process_request,
             origins=None,          # accept connections from any origin (browsers, Pi, etc.)
             ping_interval=20,      # keepalive every 20s
             ping_timeout=30,       # disconnect after 30s no pong
             max_size=10 * 1024 * 1024,  # 10 MB max message
         ):
             await asyncio.Future()   # run forever
-
-
