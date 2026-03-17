@@ -1,19 +1,42 @@
 """
 Built-in plugin: keyboard actions.
-Mirrors common built-in actions in Macro Deck (key press, type text, hotkey).
-Requires: pyautogui
+Uses the native injector backend (Windows SendInput / macOS Quartz / xdotool / evdev)
+instead of pyautogui — no extra dependency needed.
 """
 from __future__ import annotations
+import ast
 import json
 import logging
+import time
 from typing import List, TYPE_CHECKING
 
 from macro_deck_python.plugins.base import IMacroDeckPlugin, PluginAction
+from macro_deck_python.plugins.builtin.keyboard_macro import injector
 
 if TYPE_CHECKING:
     from macro_deck_python.models.action_button import ActionButton
 
 logger = logging.getLogger("plugin.keyboard")
+
+
+def _parse_config(configuration: str) -> dict:
+    """Parse configuration string that may be JSON or Python-repr (single quotes)."""
+    if not configuration:
+        return {}
+    # Try standard JSON first
+    try:
+        return json.loads(configuration)
+    except json.JSONDecodeError:
+        pass
+    # Fall back to Python literal (handles single-quoted dicts from the editor)
+    try:
+        result = ast.literal_eval(configuration)
+        if isinstance(result, dict):
+            return result
+    except Exception:
+        pass
+    logger.warning("Could not parse configuration: %r", configuration)
+    return {}
 
 
 class HotkeyAction(PluginAction):
@@ -24,16 +47,11 @@ class HotkeyAction(PluginAction):
 
     def trigger(self, client_id: str, action_button: "ActionButton") -> None:
         try:
-            import pyautogui
-        except ImportError:
-            logger.error("pyautogui not installed; keyboard actions disabled")
-            return
-        try:
-            cfg = json.loads(self.configuration) if self.configuration else {}
+            cfg = _parse_config(self.configuration)
             keys = cfg.get("keys", "")
             if keys:
-                parts = [k.strip() for k in keys.split("+")]
-                pyautogui.hotkey(*parts)
+                parts = [k.strip().lower() for k in keys.split("+")]
+                injector.combo(parts)
         except Exception as exc:
             logger.error("HotkeyAction error: %s", exc)
 
@@ -46,16 +64,13 @@ class TypeTextAction(PluginAction):
 
     def trigger(self, client_id: str, action_button: "ActionButton") -> None:
         try:
-            import pyautogui
-        except ImportError:
-            logger.error("pyautogui not installed; keyboard actions disabled")
-            return
-        try:
-            cfg = json.loads(self.configuration) if self.configuration else {}
+            cfg = _parse_config(self.configuration)
             text = cfg.get("text", "")
-            interval = float(cfg.get("interval", 0.0))
-            if text:
-                pyautogui.typewrite(text, interval=interval)
+            interval = float(cfg.get("interval", 0.03))
+            for ch in text:
+                injector.press(ch)
+                if interval > 0:
+                    time.sleep(interval)
         except Exception as exc:
             logger.error("TypeTextAction error: %s", exc)
 
@@ -68,14 +83,10 @@ class KeyPressAction(PluginAction):
 
     def trigger(self, client_id: str, action_button: "ActionButton") -> None:
         try:
-            import pyautogui
-        except ImportError:
-            return
-        try:
-            cfg = json.loads(self.configuration) if self.configuration else {}
-            key = cfg.get("key", "")
+            cfg = _parse_config(self.configuration)
+            key = cfg.get("key", "").strip().lower()
             if key:
-                pyautogui.press(key)
+                injector.press(key)
         except Exception as exc:
             logger.error("KeyPressAction error: %s", exc)
 

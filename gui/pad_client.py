@@ -43,9 +43,12 @@ html,body{height:100%;overflow:hidden;background:#0d0d1a;color:#e0e0e0;
 #btn-back{background:#0f3460;border:none;color:#7c83fd;border-radius:4px;
   padding:2px 8px;font-size:.75rem;cursor:pointer;display:none}
 
-/* ── Grid ── */
-#grid{display:grid;flex:1;padding:6px;gap:5px;
-  height:calc(100vh - 32px);overflow:hidden;align-content:start}
+/* ── Grid wrapper: centers the fixed-size grid on screen ── */
+#grid-wrap{display:flex;flex:1;align-items:center;justify-content:center;
+  height:calc(100vh - 32px);overflow:hidden}
+
+/* ── Grid: sized entirely by JS (square cells) ── */
+#grid{display:grid;gap:5px;flex-shrink:0}
 
 /* ── Button ── */
 .macro-btn{
@@ -128,7 +131,7 @@ input[type=range].vslider::-moz-range-track{
   </div>
 </div>
 
-<div id="grid"></div>
+<div id="grid-wrap"><div id="grid"></div></div>
 <div id="toast"></div>
 
 <div id="overlay">
@@ -143,6 +146,8 @@ let clientId   = null;
 let profiles   = [];
 let activeProfileId = null;
 let folderStack = [];           // stack of {folder_id, folder_name}
+// Cache last render data so resize can replay renderGrid
+let _lastButtons = [], _lastSubFolders = [], _lastSliderCells = {};
 let currentColumns = 5;
 let currentRows    = 3;
 let variables  = {};            // name → value
@@ -159,6 +164,13 @@ let wsPort     = 8191;          // discovered via /api/info
     console.warn('Could not fetch /api/info, defaulting ws_port=8191');
   }
   connect();
+
+  // Re-render grid on resize or orientation change so squares recompute
+  window.addEventListener('resize', () => {
+    if (typeof currentColumns !== 'undefined' && currentColumns > 0) {
+      renderGrid(_lastButtons, _lastSubFolders, _lastSliderCells);
+    }
+  });
 })();
 
 // ── WebSocket ─────────────────────────────────────────────────────────
@@ -263,12 +275,25 @@ function handleMessage(msg) {
 
 // ── Grid rendering ────────────────────────────────────────────────────
 function renderGrid(buttons, subFolders, sliderCells) {
+  // Cache for resize replay
+  _lastButtons = buttons; _lastSubFolders = subFolders; _lastSliderCells = sliderCells;
+
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
 
-  // CSS grid columns + rows
-  grid.style.gridTemplateColumns = `repeat(${currentColumns}, 1fr)`;
-  grid.style.gridTemplateRows    = `repeat(${currentRows}, 1fr)`;
+  // ── Compute square cell size ──────────────────────────────────────
+  const GAP = 5;
+  const availW = window.innerWidth;
+  const availH = window.innerHeight - 32; // subtract status bar
+  // Cell size that fits all columns within width, and all rows within height
+  const cellW = Math.floor((availW  - GAP * (currentColumns + 1)) / currentColumns);
+  const cellH = Math.floor((availH  - GAP * (currentRows    + 1)) / currentRows);
+  const cell  = Math.max(40, Math.min(cellW, cellH)); // square: pick the smaller axis
+
+  // Apply to grid: fixed pixel columns/rows so it doesn't stretch
+  grid.style.gridTemplateColumns = `repeat(${currentColumns}, ${cell}px)`;
+  grid.style.gridTemplateRows    = `repeat(${currentRows},    ${cell}px)`;
+  grid.style.gap                 = `${GAP}px`;
 
   // Build lookup: "row_col" → button
   const btnMap = {};
