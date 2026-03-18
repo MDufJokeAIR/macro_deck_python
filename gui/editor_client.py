@@ -134,7 +134,31 @@ body.slider-mode .slider-mode-bar{display:block}
 h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
   letter-spacing:.06em;margin:4px 0 2px}
 
-/* ── Actions list ────────────────────────────────────────────────── */
+/* ── Block program editor ────────────────────────────────────────── */
+.block-list{display:flex;flex-direction:column;gap:4px}
+.block{border-radius:6px;padding:6px 8px;border:1px solid var(--border);
+  background:var(--surface3);position:relative}
+.block.block-action{border-left:3px solid #7c83fd}
+.block.block-style{border-left:3px solid #4ade80}
+.block.block-if{border-left:3px solid #f59e0b;padding-bottom:4px}
+.block-header{display:flex;align-items:center;gap:6px;font-size:.8rem}
+.block-badge{font-size:.65rem;padding:1px 6px;border-radius:10px;
+  font-weight:600;white-space:nowrap}
+.badge-action{background:#7c83fd33;color:#7c83fd}
+.badge-style{background:#4ade8033;color:#4ade80}
+.badge-if{background:#f59e0b33;color:#f59e0b}
+.block-del{margin-left:auto;background:none;border:none;color:var(--muted);
+  cursor:pointer;font-size:.85rem;padding:0 2px;line-height:1}
+.block-del:hover{color:var(--danger)}
+.block-body{margin-top:6px;font-size:.8rem}
+.branch{margin-top:4px}
+.branch-label{font-size:.7rem;font-weight:600;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+.branch-body{padding-left:12px;border-left:2px solid var(--border)}
+.add-block-row{display:flex;gap:4px;margin-top:4px;flex-wrap:wrap}
+.add-block-row button{font-size:.72rem;padding:2px 8px}
+
+/* ── Actions list (legacy, keep for key-picker compat) ─────────────── */
 .action-item{background:var(--surface3);border-radius:6px;padding:8px 10px;
   display:flex;flex-direction:column;gap:6px;border:1px solid var(--border)}
 .action-item-header{display:flex;align-items:center;justify-content:space-between;gap:6px}
@@ -262,7 +286,7 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
     </div>
     <div id="insp-tabs">
       <button class="tab-btn active" onclick="showTab('style')">Style</button>
-      <button class="tab-btn" onclick="showTab('actions')">Actions</button>
+      <button class="tab-btn" onclick="showTab('actions')">Program</button>
       <button class="tab-btn" id="tab-slider-btn"
               onclick="showTab('slider')" style="display:none">Slider</button>
     </div>
@@ -327,21 +351,13 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
               onclick="deleteCurrentButton()">🗑 Delete button</button>
     </div>
 
-    <!-- Actions tab -->
+    <!-- Program tab -->
     <div class="tab-panel" id="tab-actions">
-      <div id="actions-list" style="display:flex;flex-direction:column;gap:6px"></div>
-      <h3>Add action</h3>
-      <div id="add-action-row">
-        <select id="action-picker">
-          <option value="">Select action…</option>
-        </select>
-        <button class="btn btn-primary btn-sm" onclick="addAction()">+ Add</button>
+      <div id="program-root"></div>
+      <div style="margin-top:6px">
+        <button class="btn btn-primary" style="width:100%"
+                onclick="saveButton()">&#x1F4BE; Save program</button>
       </div>
-      <h3 style="margin-top:6px">Conditions</h3>
-      <div id="conditions-list" style="display:flex;flex-direction:column;gap:6px"></div>
-      <button class="btn btn-ghost btn-sm" onclick="addCondition()">+ Add condition</button>
-      <button class="btn btn-primary" style="margin-top:4px"
-              onclick="saveButton()">Save actions</button>
     </div>
 
     <!-- Slider tab -->
@@ -695,8 +711,7 @@ async function onCellClick(pos, btn) {
       label_font_size: 12,
       icon: null,
       state_binding: null,
-      actions: [],
-      conditions: [],
+      program: [],
       button_type: 'button',
       slider_config: {},
     };
@@ -886,462 +901,543 @@ function collectStyleFromPanel() {
 // ═══════════════════════════════════════════════════════════════════
 // Actions panel
 // ═══════════════════════════════════════════════════════════════════
-function populateActionPicker() {
-  const sel = document.getElementById('action-picker');
-  // Group by plugin
-  const byPlugin = {};
-  for (const a of allActions) {
-    (byPlugin[a.plugin_id] = byPlugin[a.plugin_id] || []).push(a);
-  }
-  sel.innerHTML = '<option value="">Select action…</option>' +
-    Object.entries(byPlugin).map(([pid, acts]) =>
-      `<optgroup label="${pid}">${
-        acts.map(a => `<option value="${pid}::${a.action_id}">${a.name}</option>`).join('')
-      }</optgroup>`
-    ).join('');
-}
 
-function populateActionsPanel(btn) {
-  const list = document.getElementById('actions-list');
-  list.innerHTML = '';
-  for (let i = 0; i < (btn.actions||[]).length; i++) {
-    list.appendChild(makeActionItem(btn.actions[i], i));
-  }
-  renderConditions(btn.conditions || []);
-}
+// ═══════════════════════════════════════════════════════════════════
+// Block Program Engine
+// ═══════════════════════════════════════════════════════════════════
 
-function makeActionItem(entry, idx) {
-  const act = allActions.find(a =>
-    a.plugin_id === entry.plugin_id && a.action_id === entry.action_id);
-  const name = act?.name || entry.action_id;
-  const isMacro = ['macro_short_press','macro_long_press','macro_double_click',
-                   'macro_tap_sequence'].includes(entry.action_id);
-
-  const wrap = document.createElement('div');
-  wrap.className = 'action-item';
-
-  const header = document.createElement('div');
-  header.className = 'action-item-header';
-  header.innerHTML = `
-    <span title="${entry.plugin_id}">${name}</span>
-    <button class="action-del" onclick="deleteAction(${idx})">✕</button>`;
-  wrap.appendChild(header);
-
-  if (act?.can_configure) {
-    if (isMacro) {
-      wrap.appendChild(makeKeyPicker(entry, idx));
-    } else {
-      const cfgDiv = makeSmartActionConfig(entry, idx);
-      wrap.appendChild(cfgDiv);
-    }
-  }
-  return wrap;
-}
-
+// ── helpers ──────────────────────────────────────────────────────
 function _varOptions(selected) {
   return allVariables.map(v =>
     `<option value="${v.name}" ${v.name===selected?'selected':''}>${v.name} (${v.type})</option>`
   ).join('');
 }
 
-function makeSmartActionConfig(entry, idx) {
-  let cfg = {};
-  try { cfg = JSON.parse(entry.configuration || '{}'); } catch(e) {}
+// Deep-get a block by path like [0,'then_blocks',1]
+function _getBlock(path) {
+  let node = editBtn.program;
+  for (let i = 0; i < path.length; i++) {
+    const k = path[i];
+    if (typeof k === 'number') node = node[k];
+    else node = node[k];            // 'then_blocks' | 'else_blocks'
+  }
+  return node;
+}
 
+// Deep-get the *array* that contains a block at path
+function _getParentList(path) {
+  if (path.length === 1) return editBtn.program;
+  const parentPath = path.slice(0, -1);
+  return _getBlock(parentPath);
+}
+
+// Path encoding helpers — paths containing string keys (e.g. "then_blocks")
+// can't be safely embedded in HTML double-quoted attributes as raw JSON.
+// We base64-encode them instead.
+function pathEnc(path) { return btoa(JSON.stringify(path)); }
+function pathDec(s)    { return JSON.parse(atob(s)); }
+
+// Wrap all window-level path functions to accept encoded paths
+function _resolvePathArg(arg) {
+  // If it's a string (base64), decode it; if it's already an array, use directly
+  return typeof arg === 'string' ? pathDec(arg) : arg;
+}
+
+
+// ── render ───────────────────────────────────────────────────────
+function renderProgram() {
+  const root = document.getElementById('program-root');
+  if (!root) return;
+  root.innerHTML = '';
+  const list = document.createElement('div');
+  list.className = 'block-list';
+  (editBtn.program || []).forEach((block, i) => {
+    list.appendChild(renderBlock(block, [i]));
+  });
+  list.appendChild(makeAddRow([]));
+  root.appendChild(list);
+}
+
+function renderBlock(block, path) {
   const div = document.createElement('div');
-  div.className = 'action-cfg';
+  div.className = `block block-${block.type}`;
 
-  const aid = entry.action_id;
+  const pathStr = pathEnc(path);
 
-  // ── Toggle Variable ──────────────────────────────────────────────
-  if (aid === 'toggle_variable') {
+  if (block.type === 'action') {
+    const act = allActions.find(a => a.plugin_id===block.plugin_id && a.action_id===block.action_id);
+    const name = act?.name || block.action_id;
     div.innerHTML = `
-      <div class="field">
-        <label>Variable to toggle (Bool)</label>
-        <select onchange="updateSmartCfg(${idx},'variable_name',this.value)">
-          <option value="">— select —</option>
-          ${_varOptions(cfg.variable_name||'')}
-        </select>
+      <div class="block-header">
+        <span class="block-badge badge-action">▶</span>
+        <span style="flex:1">${escHtml(name)}</span>
+        <button class="block-move" onclick="moveBlock('${pathStr}',-1)" title="Move up">▲</button>
+        <button class="block-move" onclick="moveBlock('${pathStr}', 1)" title="Move down">▼</button>
+        <button class="block-del" onclick="deleteBlock('${pathStr}')">✕</button>
       </div>`;
-    return div;
+    const body = document.createElement('div');
+    body.className = 'block-body';
+    body.appendChild(makeSmartActionConfig(block, path));
+    div.appendChild(body);
+
+
+  } else if (block.type === 'style') {
+    div.innerHTML = `
+      <div class="block-header">
+        <span class="block-badge badge-style">🎨 STYLE</span>
+        <span style="font-size:.75rem;color:var(--muted)">appearance override</span>
+        <button class="block-del" onclick="moveBlock('${pathEnc(path)}',-1)" title="Move up">↑</button>
+        <button class="block-del" onclick="moveBlock('${pathEnc(path)}',1)" title="Move down">↓</button>
+        <button class="block-del" onclick="deleteBlock('${pathEnc(path)}')">✕</button>
+      </div>`;
+    const sbody = document.createElement('div');
+    sbody.className = 'block-body';
+    sbody.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+        <div>
+          <label style="font-size:.7rem;color:var(--muted)">Label <span style="opacity:.5">(blank = unchanged)</span></label>
+          <input class="ctrl" style="width:100%;font-size:.75rem"
+            value="${escHtml(block.label||'')}" placeholder="(unchanged)"
+            onchange="setBlockFieldRender('${pathEnc(path)}','label',this.value||null)">
+        </div>
+        <div>
+          <label style="font-size:.7rem;color:var(--muted)">Label colour</label>
+          <div style="display:flex;gap:3px">
+            <input type="color" style="width:30px;height:26px;border:none;border-radius:4px;cursor:pointer"
+              value="${/^#[0-9a-fA-F]{6}$/.test(block.label_color||'')?block.label_color:'#ffffff'}"
+              oninput="setBlockFieldRender('${pathEnc(path)}','label_color',this.value)">
+            <input class="ctrl" style="flex:1;font-size:.75rem" value="${escHtml(block.label_color||'')}"
+              placeholder="#ffffff"
+              onchange="setBlockFieldRender('${pathEnc(path)}','label_color',this.value||null)">
+          </div>
+        </div>
+        <div>
+          <label style="font-size:.7rem;color:var(--muted)">Background</label>
+          <div style="display:flex;gap:3px">
+            <input type="color" style="width:30px;height:26px;border:none;border-radius:4px;cursor:pointer"
+              value="${/^#[0-9a-fA-F]{6}$/.test(block.background_color||'')?block.background_color:'#000000'}"
+              oninput="setBlockFieldRender('${pathEnc(path)}','background_color',this.value)">
+            <input class="ctrl" style="flex:1;font-size:.75rem" value="${escHtml(block.background_color||'')}"
+              placeholder="#000000"
+              onchange="setBlockFieldRender('${pathEnc(path)}','background_color',this.value||null)">
+          </div>
+        </div>
+      </div>`;
+    div.appendChild(sbody);
+
+  } else if (block.type === 'if') {
+    // Build summary of conditions for the header
+    const conds = block.conditions?.length ? block.conditions : [{
+      variable_name: block.variable_name||'?', operator: block.operator||'==',
+      compare_value: block.compare_value??'', logic: 'AND'
+    }];
+    const summary = conds.map((c,i) =>
+      `${i>0?`<span style="color:#f59e0b;font-size:.7rem"> ${c.logic||'AND'} </span>`:''}` +
+      `<b>${escHtml(c.variable_name||'?')}</b> ${escHtml(c.operator||'==')} <b>${escHtml(String(c.compare_value??''))}</b>`
+    ).join('');
+
+    div.innerHTML = `
+      <div class="block-header">
+        <span class="block-badge badge-if">IF</span>
+        <span style="font-size:.75rem;flex:1">${summary}</span>
+        <button class="block-del" onclick="moveBlock('${pathEnc(path)}',-1)" title="Move up">↑</button>
+        <button class="block-del" onclick="moveBlock('${pathEnc(path)}',1)" title="Move down">↓</button>
+        <button class="block-del" onclick="deleteBlock('${pathEnc(path)}')">✕</button>
+      </div>`;
+
+    // Multi-condition editor
+    const condEditor = document.createElement('div');
+    condEditor.className = 'block-body';
+    condEditor.id = `cond-editor-${path.join('-')}`;
+    function renderCondRows() {
+      const cs = block.conditions?.length ? block.conditions : [{
+        variable_name: block.variable_name||'', operator: block.operator||'==',
+        compare_value: block.compare_value??'', logic: 'AND'
+      }];
+      // Ensure block.conditions is always the list
+      block.conditions = cs;
+      condEditor.innerHTML = '';
+      cs.forEach((c, ci) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:4px;align-items:center;margin-bottom:3px;flex-wrap:wrap';
+        row.innerHTML = `
+          ${ci > 0 ? `
+          <select class="ctrl" style="width:52px;font-size:.72rem"
+            onchange="block_cond_set('${pathEnc(path)}',${ci},'logic',this.value);renderCondRows_${path.join('_')}()">
+            <option ${(c.logic||'AND')==='AND'?'selected':''}>AND</option>
+            <option ${c.logic==='OR'?'selected':''}>OR</option>
+          </select>` : '<span style="width:52px;font-size:.72rem;color:var(--muted);text-align:center">IF</span>'}
+          <select class="ctrl" style="flex:2;font-size:.72rem"
+            onchange="block_cond_set('${pathEnc(path)}',${ci},'variable_name',this.value)">
+            <option value="_state" ${c.variable_name==='_state'?'selected':''}>_state</option>
+            ${_varOptions(c.variable_name)}
+          </select>
+          <select class="ctrl" style="width:55px;font-size:.72rem"
+            onchange="block_cond_set('${pathEnc(path)}',${ci},'operator',this.value)">
+            ${['==','!=','>','<','>=','<='].map(op=>`<option ${c.operator===op?'selected':''}>${op}</option>`).join('')}
+          </select>
+          <input class="ctrl" style="flex:1;font-size:.72rem" value="${escHtml(String(c.compare_value??''))}"
+            placeholder="value" onchange="block_cond_set('${pathEnc(path)}',${ci},'compare_value',this.value)">
+          ${ci > 0 ? `<button class="block-del" onclick="block_cond_del('${pathEnc(path)}',${ci})">✕</button>` : ''}`;
+        condEditor.appendChild(row);
+      });
+      const addRow = document.createElement('div');
+      addRow.style.cssText = 'display:flex;gap:4px;margin-top:2px';
+      addRow.innerHTML = `
+        <button class="btn btn-ghost btn-sm" style="font-size:.7rem"
+          onclick="block_cond_add('${pathEnc(path)}','AND')">+ AND</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:.7rem"
+          onclick="block_cond_add('${pathEnc(path)}','OR')">+ OR</button>`;
+      condEditor.appendChild(addRow);
+    }
+    // Store renderCondRows in a named function so AND/OR selects can call it
+    window[`renderCondRows_${path.join('_')}`] = renderCondRows;
+    renderCondRows();
+    div.appendChild(condEditor);
+
+    // THEN branch
+    const thenDiv = document.createElement('div');
+    thenDiv.className = 'branch';
+    thenDiv.innerHTML = '<div class="branch-label">✅ Then</div>';
+    const thenBody = document.createElement('div');
+    thenBody.className = 'branch-body block-list';
+    const thenPath = [...path, 'then_blocks'];
+    (block.then_blocks||[]).forEach((b,i) => thenBody.appendChild(renderBlock(b, [...thenPath, i])));
+    thenBody.appendChild(makeAddRow(thenPath));
+    thenDiv.appendChild(thenBody);
+    div.appendChild(thenDiv);
+
+    // ELSE branch
+    const elseDiv = document.createElement('div');
+    elseDiv.className = 'branch';
+    elseDiv.innerHTML = '<div class="branch-label">❌ Else</div>';
+    const elseBody = document.createElement('div');
+    elseBody.className = 'branch-body block-list';
+    const elsePath = [...path, 'else_blocks'];
+    (block.else_blocks||[]).forEach((b,i) => elseBody.appendChild(renderBlock(b, [...elsePath, i])));
+    elseBody.appendChild(makeAddRow(elsePath));
+    elseDiv.appendChild(elseBody);
+    div.appendChild(elseDiv);
   }
 
-  // ── Set Variable ─────────────────────────────────────────────────
-  if (aid === 'set_variable') {
-    div.innerHTML = `
-      <div class="field">
-        <label>Variable</label>
-        <select onchange="updateSmartCfg(${idx},'variable_name',this.value)">
-          <option value="">— select —</option>
-          ${_varOptions(cfg.variable_name||'')}
-        </select>
-      </div>
-      <div class="field">
-        <label>Value</label>
-        <input class="ctrl" value="${escHtml(String(cfg.value??''))}"
-          oninput="updateSmartCfg(${idx},'value',this.value)">
-      </div>
-      <div class="field">
-        <label>Type</label>
-        <select onchange="updateSmartCfg(${idx},'type',this.value)">
-          ${['Bool','Integer','Float','String'].map(t =>
-            `<option ${(cfg.type||'String')===t?'selected':''}>${t}</option>`).join('')}
-        </select>
-      </div>`;
-    return div;
-  }
-
-  // ── Hotkey ───────────────────────────────────────────────────────
-  if (aid === 'hotkey') {
-    div.innerHTML = `
-      <div class="field">
-        <label>Keys (e.g. ctrl+c, ctrl+shift+t)</label>
-        <input class="ctrl" value="${escHtml(cfg.keys||'')}"
-          placeholder="ctrl+c"
-          oninput="updateSmartCfg(${idx},'keys',this.value)">
-      </div>`;
-    return div;
-  }
-
-  // ── Type Text ────────────────────────────────────────────────────
-  if (aid === 'type_text') {
-    div.innerHTML = `
-      <div class="field">
-        <label>Text to type</label>
-        <input class="ctrl" value="${escHtml(cfg.text||'')}"
-          oninput="updateSmartCfg(${idx},'text',this.value)">
-      </div>
-      <div class="field">
-        <label>Interval between chars (s)</label>
-        <input class="ctrl" type="number" min="0" step="0.01"
-          value="${cfg.interval??0.03}"
-          oninput="updateSmartCfg(${idx},'interval',parseFloat(this.value))">
-      </div>`;
-    return div;
-  }
-
-  // ── Key Press ────────────────────────────────────────────────────
-  if (aid === 'key_press') {
-    div.innerHTML = `
-      <div class="field">
-        <label>Key</label>
-        <input class="ctrl" value="${escHtml(cfg.key||'')}"
-          placeholder="f5, enter, space…"
-          oninput="updateSmartCfg(${idx},'key',this.value)">
-      </div>`;
-    return div;
-  }
-
-  // ── Run Command ──────────────────────────────────────────────────
-  if (aid === 'run_command') {
-    div.innerHTML = `
-      <div class="field">
-        <label>Command</label>
-        <input class="ctrl" value="${escHtml(cfg.command||'')}"
-          oninput="updateSmartCfg(${idx},'command',this.value)">
-      </div>
-      <div class="field" style="flex-direction:row;align-items:center;gap:8px">
-        <input type="checkbox" ${cfg.wait?'checked':''} id="wait-${idx}"
-          onchange="updateSmartCfg(${idx},'wait',this.checked)">
-        <label for="wait-${idx}">Wait for completion</label>
-      </div>`;
-    return div;
-  }
-
-  // ── Open URL ─────────────────────────────────────────────────────
-  if (aid === 'open_url') {
-    div.innerHTML = `
-      <div class="field">
-        <label>URL</label>
-        <input class="ctrl" value="${escHtml(cfg.url||'')}"
-          placeholder="https://…"
-          oninput="updateSmartCfg(${idx},'url',this.value)">
-      </div>`;
-    return div;
-  }
-
-  // ── Delay ────────────────────────────────────────────────────────
-  if (aid === 'delay') {
-    div.innerHTML = `
-      <div class="field">
-        <label>Duration (milliseconds)</label>
-        <input class="ctrl" type="number" min="1" value="${cfg.milliseconds??500}"
-          oninput="updateSmartCfg(${idx},'milliseconds',parseInt(this.value))">
-      </div>`;
-    return div;
-  }
-
-  // ── Generic JSON fallback ────────────────────────────────────────
-  div.innerHTML = `
-    <div class="field">
-      <label>Configuration (JSON)</label>
-      <textarea id="cfg-${idx}" onchange="updateActionCfg(${idx},this.value)"
-        >${escHtml(entry.configuration||'{}')}</textarea>
-    </div>`;
   return div;
 }
 
-window.updateSmartCfg = function(idx, key, value) {
-  if (!editBtn?.actions?.[idx]) return;
-  let cfg = {};
-  try { cfg = JSON.parse(editBtn.actions[idx].configuration || '{}'); } catch(e) {}
-  cfg[key] = value;
-  editBtn.actions[idx].configuration = JSON.stringify(cfg);
+function makeAddRow(atPath) {
+  const pathStr = pathEnc(atPath);
+  // Build action options grouped by plugin
+  const byPlugin = {};
+  allActions.forEach((a, i) => {
+    if (!byPlugin[a.plugin_id]) byPlugin[a.plugin_id] = [];
+    byPlugin[a.plugin_id].push({ ...a, idx: i });
+  });
+  const optHtml = Object.entries(byPlugin).map(([pid, acts]) =>
+    `<optgroup label="${escHtml(pid)}">${
+      acts.map(a => `<option value="${a.idx}">${escHtml(a.name)}</option>`).join('')
+    }</optgroup>`
+  ).join('');
+
+  const row = document.createElement('div');
+  row.className = 'add-block-row';
+  row.innerHTML = `
+    <select class="ctrl add-action-sel" style="font-size:.72rem;flex:1"
+      onchange="if(this.value!=='') { addBlock('${pathStr}','action',parseInt(this.value)); this.value=''; }">
+      <option value="">▶ + Action…</option>
+      ${optHtml}
+    </select>
+    <button class="btn btn-ghost btn-sm" style="font-size:.72rem"
+      onclick="addBlock('${pathStr}','if')">IF</button>
+    <button class="btn btn-ghost btn-sm" style="font-size:.72rem"
+      onclick="addBlock('${pathStr}','style')">🎨</button>`;
+  return row;
+}
+
+window.moveBlock = function(path, dir) {
+  path = _resolvePathArg(path);
+  const list = _getParentList(path);
+  const idx  = path[path.length - 1];
+  const swap = idx + dir;
+  if (swap < 0 || swap >= list.length) return;
+  [list[idx], list[swap]] = [list[swap], list[idx]];
+  renderProgram();
 };
 
-function makeKeyPicker(entry, idx) {
+window.setBlockField = function(path, field, value) {
+  path = _resolvePathArg(path);
+  const block = _getBlock(path);
+  if (block) { block[field] = value; }
+};
+
+// Like setBlockField but also re-renders (for fields that affect visual structure)
+window.setBlockFieldRender = function(path, field, value) {
+  path = _resolvePathArg(path);
+  const block = _getBlock(path);
+  if (block) { block[field] = value; renderProgram(); }
+};
+
+// Multi-condition helpers for IF blocks
+window.block_cond_set = function(path, ci, key, value) {
+  path = _resolvePathArg(path);
+  const block = _getBlock(path);
+  if (block?.conditions?.[ci] !== undefined) block.conditions[ci][key] = value;
+};
+window.block_cond_add = function(path, logic) {
+  path = _resolvePathArg(path);
+  const block = _getBlock(path);
+  if (!block) return;
+  block.conditions = block.conditions?.length ? block.conditions : [{
+    variable_name: block.variable_name||'', operator: block.operator||'==',
+    compare_value: block.compare_value??'', logic: 'AND'
+  }];
+  block.conditions.push({ variable_name: '_state', operator: '==', compare_value: 'True', logic });
+  renderProgram();
+};
+window.block_cond_del = function(path, ci) {
+  path = _resolvePathArg(path);
+  const block = _getBlock(path);
+  if (block?.conditions) { block.conditions.splice(ci, 1); renderProgram(); }
+};
+
+window.deleteBlock = function(path) {
+  path = _resolvePathArg(path);
+  const parentList = _getParentList(path);
+  const idx = path[path.length - 1];
+  parentList.splice(idx, 1);
+  renderProgram();
+};
+
+window.addBlock = function(atPath, type, actionIdx) {
+  atPath = _resolvePathArg(atPath);
+  // atPath navigates to the LIST itself (not to a block inside it)
+  let list;
+  if (atPath.length === 0) {
+    list = editBtn.program;
+  } else {
+    let node = editBtn.program;
+    for (const seg of atPath) {
+      node = typeof seg === 'number' ? node[seg] : node[seg];
+    }
+    list = node;
+  }
+
+  if (type === 'action') {
+    if (actionIdx === undefined || actionIdx === null) return; // needs picker
+    const a = allActions[actionIdx];
+    if (!a) return;
+    list.push({ type:'action', plugin_id:a.plugin_id,
+                action_id:a.action_id, configuration:'{}', configuration_summary:'' });
+  } else if (type === 'style') {
+    list.push({ type:'style', label:null, label_color:null, background_color:null, icon:null });
+  } else if (type === 'if') {
+    const profile = profiles.find(p => p.id === activeProfileId);
+    const safe = profile ? profile.name.replace(/[^a-zA-Z0-9_]/g,'') : '';
+    const [r,c] = (selectedPos||'0_0').split('_').map(Number);
+    const suggestVar = safe ? `Profile${safe}_x${c+1}y${r+1}` : '_state';
+    list.push({ type:'if', variable_name:suggestVar, operator:'==',
+                compare_value:'True', then_blocks:[], else_blocks:[] });
+  }
+  renderProgram();
+};
+
+// ── smart action config (for blocks) ─────────────────────────────
+
+function makeSmartActionConfig(block, path) {
   let cfg = {};
-  try { cfg = JSON.parse(entry.configuration||'{}'); } catch(e) {}
+  try { cfg = JSON.parse(block.configuration || '{}'); } catch(e) {}
+
+  const div = document.createElement('div');
+  div.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-top:4px';
+
+  function inp(label, key, val, placeholder, type='text') {
+    const id = `blk-'${pathEnc(path)}'-${key}`.replace(/[^a-z0-9]/gi,'_');
+    return `<div>
+      <label style="font-size:.7rem;color:var(--muted)">${label}</label>
+      <input class="ctrl" id="${id}" type="${type}" value="${escHtml(String(val??''))}"
+        placeholder="${escHtml(placeholder||'')}" style="font-size:.75rem;width:100%"
+        oninput="updateBlockCfg('${pathEnc(path)}','${key}',this.value)">
+    </div>`;
+  }
+
+  function varSel(key, val) {
+    return `<div>
+      <label style="font-size:.7rem;color:var(--muted)">Variable</label>
+      <select class="ctrl" style="font-size:.75rem;width:100%"
+        onchange="updateBlockCfg('${pathEnc(path)}','${key}',this.value)">
+        <option value="">— select —</option>
+        ${_varOptions(val||'')}
+      </select>
+    </div>`;
+  }
+
+  const aid = block.action_id;
+
+  if (aid === 'toggle_variable') {
+    div.innerHTML = varSel('variable_name', cfg.variable_name);
+  } else if (aid === 'set_variable') {
+    div.innerHTML = varSel('variable_name', cfg.variable_name) +
+      inp('Value', 'value', cfg.value, '') +
+      `<div><label style="font-size:.7rem;color:var(--muted)">Type</label>
+       <select class="ctrl" style="font-size:.75rem;width:100%"
+         onchange="updateBlockCfg('${pathEnc(path)}','type',this.value)">
+         ${['Bool','Integer','Float','String'].map(t=>
+           `<option ${(cfg.type||'String')===t?'selected':''}>${t}</option>`).join('')}
+       </select></div>`;
+  } else if (aid === 'hotkey') {
+    div.innerHTML = inp('Keys (e.g. ctrl+c)', 'keys', cfg.keys, 'ctrl+c');
+  } else if (aid === 'type_text') {
+    div.innerHTML = inp('Text', 'text', cfg.text, '') +
+                    inp('Interval (s)', 'interval', cfg.interval??0.03, '0.03', 'number');
+  } else if (aid === 'key_press') {
+    div.innerHTML = inp('Key', 'key', cfg.key, 'f5, enter…');
+  } else if (aid === 'run_command') {
+    div.innerHTML = inp('Command', 'command', cfg.command, '') +
+      `<div style="display:flex;gap:6px;align-items:center">
+        <input type="checkbox" ${cfg.wait?'checked':''}
+          onchange="updateBlockCfg('${pathEnc(path)}','wait',this.checked)">
+        <label style="font-size:.75rem">Wait for completion</label>
+      </div>`;
+  } else if (aid === 'open_url') {
+    div.innerHTML = inp('URL', 'url', cfg.url, 'https://…');
+  } else if (aid === 'delay') {
+    div.innerHTML = inp('Milliseconds', 'milliseconds', cfg.milliseconds??500, '500', 'number');
+  } else if (['macro_short_press','macro_long_press','macro_double_click','macro_tap_sequence'].includes(aid)) {
+    div.appendChild(makeKeyPicker(block, path));
+    return div;
+  } else {
+    div.innerHTML = `<div>
+      <label style="font-size:.7rem;color:var(--muted)">Configuration (JSON)</label>
+      <textarea class="ctrl" style="font-size:.75rem;width:100%;min-height:50px"
+        oninput="setBlockField('${pathEnc(path)}','configuration',this.value)"
+        >${escHtml(block.configuration||'{}')}</textarea>
+    </div>`;
+  }
+  return div;
+}
+
+window.updateBlockCfg = function(path, key, value) {
+  path = _resolvePathArg(path);
+  const block = _getBlock(path);
+  if (!block) return;
+  let cfg = {};
+  try { cfg = JSON.parse(block.configuration || '{}'); } catch(e) {}
+  cfg[key] = value;
+  block.configuration = JSON.stringify(cfg);
+};
+
+// ── populate (called when inspector opens on a button) ────────────
+
+function populateActionsPanel(btn) {
+  renderProgram();
+}
+
+// Populate action picker (legacy, kept for key-picker compat)
+function populateActionPicker() {}
+
+// Stub legacy functions so old call-sites don't crash
+function addAction() { addBlock([], 'action'); }
+function addCondition() { addBlock([], 'if'); }
+
+// ── key picker (adapted for block path) ──────────────────────────
+
+function makeKeyPicker(block, path) {
+  let cfg = {};
+  try { cfg = JSON.parse(block.configuration || '{}'); } catch(e) {}
 
   const keys      = cfg.keys || [''];
   const tapMs     = cfg.tap_ms || 50;
   const holdMs    = cfg.hold_ms || 500;
   const doubleInt = cfg.double_interval_ms || 80;
-  const isDouble  = entry.action_id === 'macro_double_click';
-  const isLong    = entry.action_id === 'macro_long_press';
+  const isDouble  = block.action_id === 'macro_double_click';
+  const isLong    = block.action_id === 'macro_long_press';
 
-  // Build key group options HTML (cached)
   if (!window._keyOptsHtml) {
     let html = '<option value="">—</option>';
     for (const [grp, ks] of Object.entries(keyGroups)) {
       html += `<optgroup label="${grp}">`;
-      for (const k of ks) {
-        html += `<option value="${k}">${k}</option>`;
-      }
+      for (const k of ks) html += `<option value="${k}">${k}</option>`;
       html += '</optgroup>';
     }
     window._keyOptsHtml = html;
   }
 
+  const pathKey = pathEnc(path);
   const div = document.createElement('div');
   div.className = 'key-picker';
   div.innerHTML = `
     <div style="font-size:.75rem;color:var(--muted)">Keys (1–5)</div>
-    <div class="key-slots" id="ks-${idx}"></div>
+    <div class="key-slots" id="ks-${pathKey.replace(/[^a-z0-9]/gi,'_')}"></div>
     <div class="key-options">
-      ${!isLong ? `<label>Tap ms<input type="number" class="kp-tap" data-idx="${idx}"
-        value="${tapMs}" min="1" max="2000" onchange="syncKeyPicker(${idx})"></label>` : ''}
-      ${isLong ? `<label>Hold ms<input type="number" class="kp-hold" data-idx="${idx}"
-        value="${holdMs}" min="1" max="10000" onchange="syncKeyPicker(${idx})"></label>` : ''}
-      ${isDouble ? `<label>Interval ms<input type="number" class="kp-dbl" data-idx="${idx}"
-        value="${doubleInt}" min="10" onchange="syncKeyPicker(${idx})"></label>` : ''}
+      ${!isLong ? `<label>Tap ms<input type="number" class="kp-tap" data-path='${pathKey}'
+        value="${tapMs}" min="1" max="2000" onchange="syncKeyPickerBlock(this)"></label>` : ''}
+      ${isLong ? `<label>Hold ms<input type="number" class="kp-hold" data-path='${pathKey}'
+        value="${holdMs}" min="1" max="10000" onchange="syncKeyPickerBlock(this)"></label>` : ''}
+      ${isDouble ? `<label>Interval ms<input type="number" class="kp-dbl" data-path='${pathKey}'
+        value="${doubleInt}" min="1" max="500" onchange="syncKeyPickerBlock(this)"></label>` : ''}
     </div>`;
 
-  const slotsDiv = div.querySelector(`#ks-${idx}`);
+  const slotsId = `ks-${pathKey.replace(/[^a-z0-9]/gi,'_')}`;
+  const slotsEl = div.querySelector('.key-slots');
 
-  function renderSlots(currentKeys) {
-    slotsDiv.innerHTML = '';
-    const used = Math.max(1, Math.min(5, currentKeys.length));
-    for (let s = 0; s < used; s++) {
-      const slotEl = document.createElement('div');
-      slotEl.className = 'key-slot';
-      slotEl.innerHTML = `
-        <select onchange="syncKeyPicker(${idx})" title="Key ${s+1}">
-          ${window._keyOptsHtml}
-        </select>
-        ${s > 0 ? `<button class="key-slot-del" onclick="removeKeySlot(${idx},${s})">✕</button>` : ''}`;
-      slotEl.querySelector('select').value = currentKeys[s] || '';
-      slotsDiv.appendChild(slotEl);
-    }
-    if (used < 5) {
+  function renderSlots() {
+    slotsEl.innerHTML = '';
+    keys.forEach((k, s) => {
+      const slotDiv = document.createElement('div');
+      slotDiv.className = 'key-slot';
+      slotDiv.innerHTML = `
+        <select onchange="setKeySlotBlock('${pathKey}',${s},this.value)">${window._keyOptsHtml}</select>
+        ${s > 0 ? `<button class="key-slot-del" onclick="removeKeySlotBlock('${pathKey}',${s})">✕</button>` : ''}`;
+      slotDiv.querySelector('select').value = k;
+      slotsEl.appendChild(slotDiv);
+    });
+    if (keys.length < 5) {
       const addBtn = document.createElement('button');
-      addBtn.className = 'key-slot-add';
-      addBtn.textContent = '+';
-      addBtn.onclick = () => {
-        try {
-          const e = editBtn.actions[idx];
-          const c = JSON.parse(e.configuration || '{}');
-          c.keys = [...(c.keys||['']), ''];
-          e.configuration = JSON.stringify(c);
-        } catch(err) {}
-        populateActionsPanel(editBtn);
-      };
-      slotsDiv.appendChild(addBtn);
+      addBtn.className = 'btn btn-ghost btn-sm';
+      addBtn.textContent = '+ Key';
+      addBtn.onclick = () => { keys.push(''); renderSlots(); syncKeyPickerBlock(null, pathKey, keys); };
+      slotsEl.appendChild(addBtn);
     }
   }
-
-  renderSlots(keys);
+  renderSlots();
   return div;
 }
 
-window.syncKeyPicker = function(idx) {
-  const entry = editBtn?.actions?.[idx];
-  if (!entry) return;
-  let cfg = {};
-  try { cfg = JSON.parse(entry.configuration || '{}'); } catch(e) {}
-
-  const slotsDiv = document.getElementById(`ks-${idx}`);
-  if (slotsDiv) {
-    cfg.keys = Array.from(slotsDiv.querySelectorAll('select'))
-      .map(s => s.value).filter(v => v);
-  }
-
-  const tapEl  = document.querySelector(`.kp-tap[data-idx="${idx}"]`);
-  const holdEl = document.querySelector(`.kp-hold[data-idx="${idx}"]`);
-  const dblEl  = document.querySelector(`.kp-dbl[data-idx="${idx}"]`);
-  if (tapEl)  cfg.tap_ms              = parseInt(tapEl.value)  || 50;
-  if (holdEl) cfg.hold_ms             = parseInt(holdEl.value) || 500;
-  if (dblEl)  cfg.double_interval_ms  = parseInt(dblEl.value)  || 80;
-
-  entry.configuration = JSON.stringify(cfg);
+window.setKeySlotBlock = function(pathKey, slotIdx, val) {
+  const path = pathDec(pathKey);
+  const block = _getBlock(path);
+  if (!block) return;
+  let cfg = {}; try { cfg = JSON.parse(block.configuration||'{}'); } catch(e) {}
+  cfg.keys = cfg.keys || [''];
+  cfg.keys[slotIdx] = val;
+  block.configuration = JSON.stringify(cfg);
 };
 
-window.removeKeySlot = function(idx, slotIdx) {
-  const entry = editBtn?.actions?.[idx];
-  if (!entry) return;
-  try {
-    const c = JSON.parse(entry.configuration || '{}');
-    c.keys = (c.keys || []).filter((_, i) => i !== slotIdx);
-    if (!c.keys.length) c.keys = [''];
-    entry.configuration = JSON.stringify(c);
-  } catch(e) {}
-  populateActionsPanel(editBtn);
+window.removeKeySlotBlock = function(pathKey, slotIdx) {
+  const path = pathDec(pathKey);
+  const block = _getBlock(path);
+  if (!block) return;
+  let cfg = {}; try { cfg = JSON.parse(block.configuration||'{}'); } catch(e) {}
+  cfg.keys = (cfg.keys||[]).filter((_,i) => i !== slotIdx);
+  if (!cfg.keys.length) cfg.keys = [''];
+  block.configuration = JSON.stringify(cfg);
+  renderProgram();
 };
 
-window.updateActionCfg = function(idx, val) {
-  if (editBtn?.actions?.[idx]) editBtn.actions[idx].configuration = val;
-};
-
-window.deleteAction = function(idx) {
-  editBtn.actions.splice(idx, 1);
-  populateActionsPanel(editBtn);
-};
-
-function addAction() {
-  const sel = document.getElementById('action-picker');
-  const val = sel.value;
-  if (!val) return;
-  const [pid, aid] = val.split('::');
-  editBtn.actions = editBtn.actions || [];
-  editBtn.actions.push({
-    plugin_id: pid, action_id: aid,
-    configuration: '{}', configuration_summary: '',
-  });
-  populateActionsPanel(editBtn);
-  sel.value = '';
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Conditions
-// ═══════════════════════════════════════════════════════════════════
-function _styleFields(prefix, i, style) {
-  // Inline style editor for one branch of a condition
-  style = style || {};
-  return `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px">
-      <div>
-        <label style="font-size:.7rem;color:var(--muted)">Label</label>
-        <input class="ctrl" style="width:100%;font-size:.75rem" value="${style.label||''}"
-          oninput="condStyle(${i},'${prefix}','label',this.value)">
-      </div>
-      <div>
-        <label style="font-size:.7rem;color:var(--muted)">Label colour</label>
-        <div style="display:flex;gap:4px">
-          <input type="color" value="${/^#[0-9a-fA-F]{6}$/.test(style.label_color||'')?style.label_color:'#ffffff'}"
-            oninput="condStyle(${i},'${prefix}','label_color',this.value)" style="width:32px;height:26px;border:none;border-radius:4px;cursor:pointer">
-          <input class="ctrl" style="flex:1;font-size:.75rem" value="${style.label_color||''}"
-            oninput="condStyle(${i},'${prefix}','label_color',this.value)">
-        </div>
-      </div>
-      <div>
-        <label style="font-size:.7rem;color:var(--muted)">Background</label>
-        <div style="display:flex;gap:4px">
-          <input type="color" value="${/^#[0-9a-fA-F]{6}$/.test(style.background_color||'')?style.background_color:'#000000'}"
-            oninput="condStyle(${i},'${prefix}','background_color',this.value)" style="width:32px;height:26px;border:none;border-radius:4px;cursor:pointer">
-          <input class="ctrl" style="flex:1;font-size:.75rem" value="${style.background_color||''}"
-            oninput="condStyle(${i},'${prefix}','background_color',this.value)">
-        </div>
-      </div>
-    </div>`;
-}
-
-function renderConditions(conditions) {
-  const list = document.getElementById('conditions-list');
-  list.innerHTML = '';
-  conditions.forEach((cond, i) => {
-    const d = document.createElement('div');
-    d.className = 'action-item';
-    d.innerHTML = `
-      <div class="action-item-header">
-        <span style="font-size:.8rem">
-          If&nbsp;<b>${cond.variable_name||'?'}</b>&nbsp;${cond.operator||'=='}&nbsp;<b>${cond.compare_value||'?'}</b>
-          &nbsp;<span style="font-size:.7rem;color:var(--muted)">(use <code>_state</code> for button toggle)</span>
-        </span>
-        <button class="action-del" onclick="deleteCondition(${i})">✕</button>
-      </div>
-
-      <details style="margin-top:6px">
-        <summary style="font-size:.75rem;cursor:pointer;color:var(--accent)">
-          ✅ When TRUE — ${(cond.actions_true||[]).length} action(s)
-        </summary>
-        ${_styleFields('style_true', i, cond.style_true)}
-        <div style="font-size:.72rem;color:var(--muted);margin-top:6px">
-          Actions: ${(cond.actions_true||[]).length} (edit via Actions tab — TODO inline)
-        </div>
-      </details>
-
-      <details style="margin-top:4px">
-        <summary style="font-size:.75rem;cursor:pointer;color:var(--muted)">
-          ❌ When FALSE — ${(cond.actions_false||[]).length} action(s)
-        </summary>
-        ${_styleFields('style_false', i, cond.style_false)}
-        <div style="font-size:.72rem;color:var(--muted);margin-top:6px">
-          Actions: ${(cond.actions_false||[]).length} (edit via Actions tab — TODO inline)
-        </div>
-      </details>`;
-    list.appendChild(d);
-  });
-}
-
-window.condStyle = function(i, branch, key, value) {
-  // Live-update a style field on a condition branch
-  if (!editBtn?.conditions?.[i]) return;
-  editBtn.conditions[i][branch] = editBtn.conditions[i][branch] || {};
-  editBtn.conditions[i][branch][key] = value;
-};
-
-function addCondition() {
-  // Build a list of variable options to show in the prompt
-  const autoVarPrefix = activeProfileId && selectedPos
-    ? (() => {
-        // Derive the auto-var name client-side (mirrors server logic)
-        const profile = profiles.find(p => p.id === activeProfileId);
-        if (!profile) return null;
-        const safe = profile.name.replace(/[^a-zA-Z0-9_]/g, '');
-        const [r, c] = selectedPos.split('_').map(Number);
-        return `Profile${safe}_x${c+1}y${r+1}`;
-      })()
-    : null;
-
-  const varOptions = [
-    '_state',
-    ...(autoVarPrefix ? [autoVarPrefix + ' ★'] : []),
-    ...allVariables.filter(v => v.name !== autoVarPrefix).map(v => v.name),
-  ];
-  const varName = prompt(
-    'Variable name (or _state for button toggle):\n\nSuggested: ' + varOptions.slice(0,6).join(', '),
-    autoVarPrefix || '_state'
-  );
-  if (!varName) return;
-  // Strip the ★ suffix if the user left it in
-  const cleanVar = varName.replace(/\s*★$/, '').trim();
-  const op = prompt('Operator (==, !=, >, <, >=, <=):', '==');
-  if (!op) return;
-  const defaultVal = cleanVar === '_state' ? 'True' : '';
-  const val = prompt('Compare value:', defaultVal);
-  if (val === null) return;
-  editBtn.conditions = editBtn.conditions || [];
-  editBtn.conditions.push({
-    variable_name: cleanVar, operator: op, compare_value: val,
-    actions_true: [], actions_false: [],
-    style_true: {}, style_false: {},
-  });
-  renderConditions(editBtn.conditions);
-}
-
-window.deleteCondition = function(i) {
-  editBtn.conditions.splice(i, 1);
-  renderConditions(editBtn.conditions);
+window.syncKeyPickerBlock = function(el, pathKeyOverride, keysOverride) {
+  const pathKey = pathKeyOverride || el.dataset.path;
+  const path = pathDec(pathKey);
+  const block = _getBlock(path);
+  if (!block) return;
+  let cfg = {}; try { cfg = JSON.parse(block.configuration||'{}'); } catch(e) {}
+  if (keysOverride) { cfg.keys = keysOverride; }
+  // Read timing inputs from DOM
+  const escapedId = pathKey.replace(/[^a-z0-9]/gi,'_');
+  const tapEl  = document.querySelector(`.kp-tap[data-path='${pathKey}']`);
+  const holdEl = document.querySelector(`.kp-hold[data-path='${pathKey}']`);
+  const dblEl  = document.querySelector(`.kp-dbl[data-path='${pathKey}']`);
+  if (tapEl)  cfg.tap_ms              = parseInt(tapEl.value);
+  if (holdEl) cfg.hold_ms             = parseInt(holdEl.value);
+  if (dblEl)  cfg.double_interval_ms  = parseInt(dblEl.value);
+  block.configuration = JSON.stringify(cfg);
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1539,7 +1635,7 @@ async function saveSlider() {
     label: editSlider.label || 'Slider',
     label_color: '#7c83fd',
     background_color: '#000000',
-    actions: [], conditions: [],
+    program: [],
   };
   if (fid) headPayload.folder_id = fid;
   await POST(`/api/profiles/${activeProfileId}/buttons`, headPayload);
@@ -1550,7 +1646,7 @@ async function saveSlider() {
       position: `${row+i}_${col}`,
       button_type: 'slider_occupied',
       slider_config: { parent_pos: selectedPos },
-      label: '', background_color: '#000000', actions: [], conditions: [],
+      label: '', background_color: '#000000', program: [],
     };
     if (fid) occ.folder_id = fid;
     await POST(`/api/profiles/${activeProfileId}/buttons`, occ);
@@ -1642,7 +1738,7 @@ function onSliderModeClick(pos) {
   editSlider = { size, min_value:0, max_value:100, step:1,
                   label:'Slider', color:'#7c83fd', outputs:[] };
   editBtn = { position: selectedPos, button_type:'slider', slider_config: editSlider,
-               label:'', actions:[], conditions:[] };
+               label:'', program:[] };
   openInspector('New Slider', true);
   populateSliderPanel(editSlider);
   document.getElementById('sl-size').value = size;

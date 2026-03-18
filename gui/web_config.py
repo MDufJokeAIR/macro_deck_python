@@ -21,7 +21,7 @@ except ImportError:
 from macro_deck_python.core.config_manager import ConfigManager
 from macro_deck_python.gui.pad_client import get_pad_html
 from macro_deck_python.gui.editor_client import get_editor_html
-from macro_deck_python.models.action_button import ActionButton, ActionEntry
+from macro_deck_python.models.action_button import ActionButton
 from macro_deck_python.models.profile import Profile, Folder
 from macro_deck_python.models.variable import Variable, VariableType
 from macro_deck_python.plugins.plugin_manager import PluginManager
@@ -81,7 +81,7 @@ async def _push_buttons_to_clients(profile_id: str) -> None:
                     "icon":             app["icon"],
                     "background_color": app["background_color"],
                     "state":            app["state"],
-                    "has_actions":      len(btn.actions) > 0 or len(btn.conditions) > 0,
+                    "has_actions":      len(btn.program) > 0,
                 })
             return base
 

@@ -42,6 +42,7 @@ class _WsNoiseFilter(logging.Filter):
         "did not receive a valid HTTP request",
         "connection closed while reading HTTP request",
         "connection rejected (200 OK)",
+        "connection failed (500 Internal Server Error)",
     )
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
@@ -97,7 +98,7 @@ class MacroDeckServer:
 
     # ── connection lifecycle ──────────────────────────────────────────
 
-    async def handler(self, ws: "WebSocketServerProtocol") -> None:
+    async def handler(self, ws: "WebSocketServerProtocol", path: str = "/") -> None:
         client_id = str(uuid.uuid4())
         info = ClientInfo(ws, client_id)
         self._clients[client_id] = info
@@ -296,7 +297,7 @@ class MacroDeckServer:
                     "icon":             app["icon"],
                     "background_color": app["background_color"],
                     "state":            app["state"],
-                    "has_actions":      len(btn.actions) > 0 or len(btn.conditions) > 0,
+                    "has_actions":      len(btn.program) > 0,
                 })
             return base
 
@@ -478,22 +479,46 @@ class MacroDeckServer:
         self.port = int(self.port)  # guard against port being passed as a string
         logger.info("Starting WebSocket server on ws://%s:%d", self.host, self.port)
 
-        async def _process_request(connection, request):
-            """Return 200 OK for plain HTTP probes so they don't spam the log."""
-            upgrade = request.headers.get("Upgrade", "").lower()
-            if upgrade != "websocket":
-                from websockets.http11 import Response
-                from websockets.datastructures import Headers
-                return Response(
-                    status_code=200,
-                    reason_phrase="OK",
-                    headers=Headers([
-                        ("Content-Type", "text/plain"),
-                        ("Content-Length", "2"),
-                    ]),
-                    body=b"OK",
-                )
-            return None   # let websockets handle the upgrade normally
+        async def _process_request(connection_or_path, request_or_headers):
+            """Return 200 OK for plain HTTP probes.
+            Handles both websockets API styles:
+              - Legacy (<11):  _process_request(path: str, headers: Headers)
+              - Modern (>=13): _process_request(connection, request)
+            """
+            # Detect which API we're dealing with
+            if isinstance(connection_or_path, str):
+                # Legacy API: (path, headers)
+                headers = request_or_headers
+                upgrade = headers.get("Upgrade", "").lower()
+                if upgrade != "websocket":
+                    # Legacy API returns (http_status, headers, body)
+                    from http import HTTPStatus
+                    return (HTTPStatus.OK, [], b"OK\r\n")
+                return None
+            else:
+                # Modern API: (connection, request)
+                request = request_or_headers
+                try:
+                    upgrade = request.headers.get("Upgrade", "").lower()
+                except AttributeError:
+                    upgrade = "websocket"  # assume valid WS if we can't read headers
+                if upgrade != "websocket":
+                    try:
+                        from websockets.http11 import Response
+                        from websockets.datastructures import Headers
+                        return Response(
+                            status_code=200,
+                            reason_phrase="OK",
+                            headers=Headers([
+                                ("Content-Type", "text/plain"),
+                                ("Content-Length", "2"),
+                            ]),
+                            body=b"OK",
+                        )
+                    except ImportError:
+                        from http import HTTPStatus
+                        return (HTTPStatus.OK, [], b"OK\r\n")
+                return None
 
         async with _websockets.serve(
             self.handler, self.host, self.port,

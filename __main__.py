@@ -96,7 +96,19 @@ async def _main_async(args: argparse.Namespace) -> None:
     config_port = ConfigManager.get("web_config_port", 8192)
     host        = ConfigManager.get("host",           "0.0.0.0")
 
-    MacroDeckLogger.info(None, f"Macro Deck Python starting — ws://{host}:{port}")
+    # Resolve the actual LAN IP for display purposes only.
+    # Always bind to 0.0.0.0 so both localhost and LAN clients can connect.
+    import socket as _socket
+    try:
+        _s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        _s.connect(("8.8.8.8", 80))
+        display_ip = _s.getsockname()[0]
+        _s.close()
+    except Exception:
+        display_ip = "127.0.0.1"
+    bind_host = "0.0.0.0"   # always bind to all interfaces
+
+    MacroDeckLogger.info(None, f"Macro Deck Python starting — ws://{display_ip}:{port}")
 
     # 2. Variables
     VariableManager.load()
@@ -157,22 +169,27 @@ async def _main_async(args: argparse.Namespace) -> None:
 
     # 9. WebSocket server
     from macro_deck_python.websocket.server import MacroDeckServer
-    ws_server = MacroDeckServer(host=host, port=port)
+    ws_server = MacroDeckServer(host=bind_host, port=port)
     tasks = [asyncio.create_task(ws_server.start())]
 
     # 10. Web config UI
     if not getattr(args, "no_gui", False) and ConfigManager.get("gui_enabled", True):
         try:
-            from aiohttp import web
-            from macro_deck_python.gui.web_config import create_app
-            runner = web.AppRunner(create_app())
-            await runner.setup()
-            await web.TCPSite(runner, "0.0.0.0", config_port).start()
-            MacroDeckLogger.info(None, f"Config UI → http://localhost:{config_port}")
+            from aiohttp import web  # noqa: F401 — test aiohttp is available
         except ImportError:
             MacroDeckLogger.warning(None, "aiohttp not installed — web config UI disabled")
-        except Exception as exc:
-            MacroDeckLogger.error(None, f"Web config UI error: {exc}")
+        else:
+            try:
+                from aiohttp import web as _web
+                from macro_deck_python.gui.web_config import create_app
+                runner = _web.AppRunner(create_app())
+                await runner.setup()
+                await _web.TCPSite(runner, "0.0.0.0", config_port).start()
+                MacroDeckLogger.info(None, f"Config UI → http://localhost:{config_port}")
+            except Exception as exc:
+                import traceback
+                MacroDeckLogger.error(None, f"Web config UI error: {exc}")
+                MacroDeckLogger.error(None, traceback.format_exc())
 
     # 11. Hot-reload watcher (user plugins only)
     hot_reload_watcher = None
@@ -190,11 +207,11 @@ async def _main_async(args: argparse.Namespace) -> None:
         hot_reload_watcher.start()
 
     MacroDeckLogger.info(None, "Macro Deck ready ✓")
-    MacroDeckLogger.info(None, f"  Button pad  → http://0.0.0.0:{config_port}")
-    MacroDeckLogger.info(None, f"  Admin UI    → http://0.0.0.0:{config_port}/admin")
-    MacroDeckLogger.info(None, f"  WebSocket   → ws://0.0.0.0:{port}")
-    MacroDeckLogger.info(None, "  ⚠ On the Raspberry Pi browser open: ")
-    MacroDeckLogger.info(None, f"    http://<this-machine-ip>:{config_port}")
+    MacroDeckLogger.info(None, f"  Button pad  → http://localhost:{config_port}")
+    MacroDeckLogger.info(None, f"  Admin UI    → http://localhost:{config_port}/admin  (localhost only)")
+    MacroDeckLogger.info(None, f"  WebSocket   → ws://localhost:{port}")
+    MacroDeckLogger.info(None, f"  ⚠ On the Raspberry Pi browser open: ")
+    MacroDeckLogger.info(None, f"    http://{display_ip}:{config_port}  (pad only, editor blocked)")
 
     try:
         await _stop.wait()
