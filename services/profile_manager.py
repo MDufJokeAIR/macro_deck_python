@@ -2,6 +2,7 @@
 ProfileManager - load/save/switch profiles.
 """
 from __future__ import annotations
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -53,6 +54,12 @@ class ProfileManager:
         with open(path, "w") as f:
             json.dump(data, f, indent=2)
 
+    @classmethod
+    async def save_async(cls, path: Path = _PROFILES_FILE) -> None:
+        """Async-safe version of save() that runs I/O in a thread pool."""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, cls.save, path)
+
     # ------------------------------------------------------------------
     @classmethod
     def get_all(cls) -> List[Profile]:
@@ -76,6 +83,16 @@ class ProfileManager:
         return False
 
     @classmethod
+    async def set_active_async(cls, profile_id: str) -> bool:
+        """Async-safe version of set_active()."""
+        p = cls._profiles.get(profile_id)
+        if p:
+            cls._active_profile = p
+            await cls.save_async()
+            return True
+        return False
+
+    @classmethod
     def set_client_profile(cls, client_id: str, profile_id: str) -> None:
         cls._client_profiles[client_id] = profile_id
 
@@ -95,6 +112,14 @@ class ProfileManager:
         return p
 
     @classmethod
+    async def create_profile_async(cls, name: str) -> Profile:
+        """Async-safe version of create_profile()."""
+        p = Profile(name=name)
+        cls._profiles[p.profile_id] = p
+        await cls.save_async()
+        return p
+
+    @classmethod
     def delete_profile(cls, profile_id: str) -> bool:
         if profile_id not in cls._profiles:
             return False
@@ -102,4 +127,15 @@ class ProfileManager:
         if cls._active_profile and cls._active_profile.profile_id == profile_id:
             cls._active_profile = next(iter(cls._profiles.values()), None)
         cls.save()
+        return True
+
+    @classmethod
+    async def delete_profile_async(cls, profile_id: str) -> bool:
+        """Async-safe version of delete_profile()."""
+        if profile_id not in cls._profiles:
+            return False
+        del cls._profiles[profile_id]
+        if cls._active_profile and cls._active_profile.profile_id == profile_id:
+            cls._active_profile = next(iter(cls._profiles.values()), None)
+        await cls.save_async()
         return True

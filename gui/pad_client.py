@@ -140,6 +140,8 @@ input[type=range].vslider::-moz-range-track{
 </div>
 
 <script>
+console.log('🎛 Macro Deck PAD client loaded');
+
 // ── State ──────────────────────────────────────────────────────────────
 let ws         = null;
 let clientId   = null;
@@ -154,15 +156,19 @@ let variables  = {};            // name → value
 let sliderValues = {};          // slider_id → current value
 let reconnectDelay = 500;
 let wsPort     = 8191;          // discovered via /api/info
+let wsHost     = null;          // will be set on first connect, with fallback
 
 // ── Boot ──────────────────────────────────────────────────────────────
+console.log('📡 Booting Macro Deck PAD...');
 (async () => {
   try {
     const info = await fetch('/api/info').then(r => r.json());
     wsPort = info.ws_port || 8191;
+    console.log('📍 API info loaded, ws_port=' + wsPort);
   } catch(e) {
     console.warn('Could not fetch /api/info, defaulting ws_port=8191');
   }
+  console.log('🔗 Calling connect()...');
   connect();
 
   // Re-render grid on resize or orientation change so squares recompute
@@ -171,17 +177,27 @@ let wsPort     = 8191;          // discovered via /api/info
       renderGrid(_lastButtons, _lastSubFolders, _lastSliderCells);
     }
   });
+  console.log('✅ Boot complete');
 })();
 
 // ── WebSocket ─────────────────────────────────────────────────────────
 function connect() {
-  const host = window.location.hostname;
-  const url  = `ws://${host}:${wsPort}`;
+  console.log('🌐 connect() called, wsHost=' + wsHost);
+  // On first connection, use the current hostname
+  // If localhost fails, fallback to 127.0.0.1
+  if (!wsHost) {
+    wsHost = window.location.hostname;
+    console.log('📍 Set wsHost to ' + wsHost);
+  }
+  
+  const url  = `ws://${wsHost}:${wsPort}`;
+  console.log('🔌 Creating WebSocket: ' + url);
   setStatus('connecting', `Connecting to ${url}…`);
 
   ws = new WebSocket(url);
 
   ws.onopen = () => {
+    console.log('✅ WebSocket connected!');
     reconnectDelay = 500;
     hideOverlay();
     send({ method: 'CONNECT', device_type: 'browser', api_version: 20 });
@@ -190,6 +206,7 @@ function connect() {
   ws.onmessage = e => handleMessage(JSON.parse(e.data));
 
   ws.onclose = () => {
+    console.log('❌ WebSocket closed');
     setStatus('disconnected', 'Disconnected — reconnecting…');
     showOverlay(`Reconnecting in ${(reconnectDelay/1000).toFixed(1)}s…`);
     setTimeout(() => { reconnectDelay = Math.min(reconnectDelay * 1.5, 10000); connect(); },
@@ -197,7 +214,13 @@ function connect() {
   };
 
   ws.onerror = err => {
-    console.error('WS error', err);
+    console.error('❌ WS error connecting to ' + wsHost, err);
+    // On first connection error with localhost, try 127.0.0.1
+    if (wsHost === 'localhost' && reconnectDelay < 1000) {
+      console.log('🔄 Localhost failed, trying 127.0.0.1...');
+      wsHost = '127.0.0.1';
+      reconnectDelay = 100;  // Quick retry with new host
+    }
   };
 }
 

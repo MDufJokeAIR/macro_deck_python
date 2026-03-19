@@ -3,6 +3,7 @@ ActionExecutor — walks a button's Block program recursively.
 All execution happens in a background thread so the WebSocket loop never blocks.
 """
 from __future__ import annotations
+import copy
 import logging
 import threading
 from typing import TYPE_CHECKING, List
@@ -21,6 +22,12 @@ def _run_action_block(block: "Block", client_id: str, button: "ActionButton") ->
     if act is None:
         logger.warning("Action not found: plugin=%s action=%s", block.plugin_id, block.action_id)
         return
+    # Work on a shallow copy so concurrent button executions (each running in
+    # their own thread) cannot overwrite each other's .configuration before or
+    # during trigger().  Without this, two rapid presses sharing the same action
+    # singleton can race: Thread A sets act.configuration = "ctrl+c", Thread B
+    # overwrites it with "ctrl+v", and Thread A ends up triggering the wrong key.
+    act = copy.copy(act)
     act.configuration         = block.configuration
     act.configuration_summary = block.configuration_summary
     try:

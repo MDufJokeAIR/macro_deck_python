@@ -1,6 +1,6 @@
 """
 Web-based configuration UI server (replaces the WinForms GUI).
-Serves an HTML5 single-page app on http://localhost:8192
+Serves an HTML5 single-page app on http://localhost:8193
 Uses aiohttp for a lightweight async HTTP + REST API backend.
 """
 from __future__ import annotations
@@ -132,23 +132,23 @@ async def api_get_profiles(request: web.Request) -> web.Response:
 
 async def api_create_profile(request: web.Request) -> web.Response:
     body = await request.json()
-    p = ProfileManager.create_profile(body.get("name", "New Profile"))
+    p = await ProfileManager.create_profile_async(body.get("name", "New Profile"))
     # Pre-create auto-variables for all button positions in the default grid
     for r in range(p.folder.rows):
         for c in range(p.folder.columns):
-            _ensure_button_variable(p.name, f"{r}_{c}")
+            await _ensure_button_variable_async(p.name, f"{r}_{c}")
     return _json({"profile_id": p.profile_id, "name": p.name})
 
 
 async def api_delete_profile(request: web.Request) -> web.Response:
     pid = request.match_info["profile_id"]
-    ok = ProfileManager.delete_profile(pid)
+    ok = await ProfileManager.delete_profile_async(pid)
     return _json({"ok": ok})
 
 
 async def api_set_active_profile(request: web.Request) -> web.Response:
     pid = request.match_info["profile_id"]
-    ok = ProfileManager.set_active(pid)
+    ok = await ProfileManager.set_active_async(pid)
     return _json({"ok": ok})
 
 
@@ -171,11 +171,11 @@ async def api_update_profile(request: web.Request) -> web.Response:
             profile.folder.rows = max(1, min(24, int(body["rows"])))
         except (TypeError, ValueError):
             pass
-    ProfileManager.save()
+    await ProfileManager.save_async()
     # Ensure auto-variables exist for every cell in the (possibly expanded) grid
     for r in range(profile.folder.rows):
         for c in range(profile.folder.columns):
-            _ensure_button_variable(profile.name, f"{r}_{c}")
+            await _ensure_button_variable_async(profile.name, f"{r}_{c}")
     return _json({"ok": True, "profile_id": profile.profile_id,
                   "name": profile.name,
                   "columns": profile.folder.columns,
@@ -230,7 +230,16 @@ def _ensure_button_variable(profile_name: str, position: str) -> str:
     vname = _auto_var_name(profile_name, position)
     if VariableManager.get_variable(vname) is None:
         VariableManager.set_value(vname, False, VariableType.BOOL,
-                                  plugin_id=None, save=True)
+                                  plugin_id=None, save=False)
+    return vname
+
+
+async def _ensure_button_variable_async(profile_name: str, position: str) -> str:
+    """Async-safe version of _ensure_button_variable()."""
+    vname = _auto_var_name(profile_name, position)
+    if VariableManager.get_variable(vname) is None:
+        await VariableManager.set_value_async(vname, False, VariableType.BOOL,
+                                              plugin_id=None, save=True)
     return vname
 
 
@@ -249,9 +258,9 @@ async def api_upsert_button(request: web.Request) -> web.Response:
             folder = found
     btn = ActionButton.from_dict(body)
     folder.buttons[position] = btn
-    ProfileManager.save()
+    await ProfileManager.save_async()
     # Auto-create the positional variable if it doesn't exist yet
-    auto_var = _ensure_button_variable(profile.name, position)
+    auto_var = await _ensure_button_variable_async(profile.name, position)
     asyncio.ensure_future(_push_buttons_to_clients(pid))
     d = btn.to_dict()
     d["auto_variable"] = auto_var
@@ -271,7 +280,7 @@ async def api_delete_button(request: web.Request) -> web.Response:
         if found:
             folder = found
     folder.buttons.pop(position, None)
-    ProfileManager.save()
+    await ProfileManager.save_async()
     asyncio.ensure_future(_push_buttons_to_clients(pid))
     return _json({"ok": True})
 
@@ -285,7 +294,7 @@ async def api_set_variable(request: web.Request) -> web.Response:
     name = body.get("name", "")
     value = body.get("value")
     vtype = VariableType(body.get("type", "String"))
-    VariableManager.set_value(name, value, vtype)
+    await VariableManager.set_value_async(name, value, vtype)
     return _json({"ok": True})
 
 
@@ -304,13 +313,13 @@ async def api_update_variable(request: web.Request) -> web.Response:
 
     if new_name != old_name:
         # Rename: create under new name, delete old
-        VariableManager.set_value(new_name, var.value, new_type,
-                                  plugin_id=var.plugin_id, save=True)
-        VariableManager.delete(old_name)
+        await VariableManager.set_value_async(new_name, var.value, new_type,
+                                      plugin_id=var.plugin_id, save=True)
+        await VariableManager.delete_async(old_name)
     else:
         # Just retype
-        VariableManager.set_value(old_name, var.value, new_type,
-                                  plugin_id=var.plugin_id, save=True)
+        await VariableManager.set_value_async(old_name, var.value, new_type,
+                                      plugin_id=var.plugin_id, save=True)
 
     return _json({"ok": True, "name": new_name, "type": new_type.value})
 
@@ -323,14 +332,14 @@ async def api_get_auto_variable(request: web.Request) -> web.Response:
     profile = ProfileManager.get_profile(pid)
     if profile is None:
         raise web.HTTPNotFound(reason="Profile not found")
-    vname = _ensure_button_variable(profile.name, position)
+    vname = await _ensure_button_variable_async(profile.name, position)
     var = VariableManager.get_variable(vname)
     return _json(var.to_dict() if var else {"name": vname})
 
 
 async def api_delete_variable(request: web.Request) -> web.Response:
     name = request.match_info["name"]
-    VariableManager.delete(name)
+    await VariableManager.delete_async(name)
     return _json({"ok": True})
 
 
@@ -472,8 +481,8 @@ async def api_info(request: web.Request) -> web.Response:
     from macro_deck_python.core.config_manager import ConfigManager
     return _json({
         "app": "macro_deck_python",
-        "ws_port": ConfigManager.get("websocket_port", 8191),
-        "http_port": ConfigManager.get("http_port", 8192),
+        "ws_port": ConfigManager.get("port", 8191),
+        "http_port": ConfigManager.get("web_config_port", 8193),
     })
 
 

@@ -29,7 +29,7 @@ def _make_icon():
 class TrayIcon:
     def __init__(
         self,
-        web_config_port: int = 8192,
+        web_config_port: int = 8193,
         on_quit: Optional[Callable[[], None]] = None,
     ):
         self.web_config_port = web_config_port

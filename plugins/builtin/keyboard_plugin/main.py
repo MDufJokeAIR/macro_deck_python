@@ -39,6 +39,31 @@ def _parse_config(configuration: str) -> dict:
     return {}
 
 
+# Characters that require Shift on a standard US keyboard layout.
+# Maps the shifted character → the base key to press while holding Shift.
+_SHIFT_CHARS: dict = {
+    '!': '1', '@': '2', '#': '3', '$': '4', '%': '5',
+    '^': '6', '&': '7', '*': '8', '(': '9', ')': '0',
+    '_': 'oem_minus', '+': 'oem_plus',
+    '{': 'oem_4', '}': 'oem_6', '|': 'oem_5',
+    ':': 'oem_1', '"': 'oem_7',
+    '<': 'oem_comma', '>': 'oem_period', '?': 'oem_2', '~': 'oem_3',
+}
+
+
+def _type_char(ch: str) -> None:
+    """Send a single character, handling uppercase and shifted symbols."""
+    if ch.isupper():
+        # Upper-case letter: hold Shift and press the lower-case key
+        injector.combo(["shift", ch.lower()])
+    elif ch in _SHIFT_CHARS:
+        # Shifted special character (e.g. '!' → Shift+1)
+        injector.combo(["shift", _SHIFT_CHARS[ch]])
+    else:
+        # Plain character, digit, space, punctuation — press directly
+        injector.press(ch)
+
+
 class HotkeyAction(PluginAction):
     action_id = "hotkey"
     name = "Press Hotkey"
@@ -68,7 +93,7 @@ class TypeTextAction(PluginAction):
             text = cfg.get("text", "")
             interval = float(cfg.get("interval", 0.03))
             for ch in text:
-                injector.press(ch)
+                _type_char(ch)
                 if interval > 0:
                     time.sleep(interval)
         except Exception as exc:

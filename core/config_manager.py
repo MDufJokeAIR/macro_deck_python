@@ -25,7 +25,7 @@ _DEFAULTS = {
     "deck_rows": 3,
     "deck_cols": 5,
     "gui_enabled": True,
-    "web_config_port": 8192,
+    "web_config_port": 8193,
 }
 
 

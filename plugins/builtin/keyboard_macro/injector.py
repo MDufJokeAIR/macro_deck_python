@@ -67,8 +67,24 @@ class _WindowsBackend:
                 ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
             ]
 
+        # MOUSEINPUT must be present in the union even when only keyboard events
+        # are sent.  Without it the union is 24 bytes instead of 32, making INPUT
+        # 32 bytes instead of 40.  Windows' SendInput validates cbSize against its
+        # own sizeof(INPUT)==40 and silently rejects every call that passes 32.
+        class MOUSEINPUT(ctypes.Structure):
+            _fields_ = [
+                ("dx",          ctypes.c_long),
+                ("dy",          ctypes.c_long),
+                ("mouseData",   ctypes.wintypes.DWORD),
+                ("dwFlags",     ctypes.wintypes.DWORD),
+                ("time",        ctypes.wintypes.DWORD),
+                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+            ]
+
         class _INPUT_union(ctypes.Union):
-            _fields_ = [("ki", KEYBDINPUT)]
+            # Both members must be present so the union is as wide as MOUSEINPUT
+            # (32 bytes), giving INPUT a total size of 40 bytes — matching Windows.
+            _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT)]
 
         class INPUT(ctypes.Structure):
             _fields_ = [("type", ctypes.wintypes.DWORD), ("_input", _INPUT_union)]
@@ -95,7 +111,13 @@ class _WindowsBackend:
     def _send_inputs(self, inputs: list) -> None:
         arr_type = self._INPUT * len(inputs)
         arr = arr_type(*inputs)
-        self._send(len(inputs), arr, self._ctypes.sizeof(self._INPUT))
+        sent = self._send(len(inputs), arr, self._ctypes.sizeof(self._INPUT))
+        if sent != len(inputs):
+            logger.warning(
+                "SendInput: only %d/%d events accepted "
+                "(cbSize=%d — struct alignment mismatch?)",
+                sent, len(inputs), self._ctypes.sizeof(self._INPUT),
+            )
 
     def _vk(self, key_name: str) -> Optional[int]:
         entry = resolve(key_name)

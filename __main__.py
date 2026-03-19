@@ -93,7 +93,7 @@ async def _main_async(args: argparse.Namespace) -> None:
     logging.getLogger().setLevel(log_level)
 
     port        = ConfigManager.get("port",           8191)
-    config_port = ConfigManager.get("web_config_port", 8192)
+    config_port = ConfigManager.get("web_config_port", 8193)
     host        = ConfigManager.get("host",           "0.0.0.0")
 
     # Resolve the actual LAN IP for display purposes only.
@@ -170,7 +170,7 @@ async def _main_async(args: argparse.Namespace) -> None:
     # 9. WebSocket server
     from macro_deck_python.websocket.server import MacroDeckServer
     ws_server = MacroDeckServer(host=bind_host, port=port)
-    tasks = [asyncio.create_task(ws_server.start())]
+    ws_task = asyncio.create_task(ws_server.start())
 
     # 10. Web config UI
     if not getattr(args, "no_gui", False) and ConfigManager.get("gui_enabled", True):
@@ -213,9 +213,24 @@ async def _main_async(args: argparse.Namespace) -> None:
     MacroDeckLogger.info(None, f"  ⚠ On the Raspberry Pi browser open: ")
     MacroDeckLogger.info(None, f"    http://{display_ip}:{config_port}  (pad only, editor blocked)")
 
-    try:
+    # Run servers and wait for stop signal
+    # Use gather to monitor both the WebSocket task and stop event
+    async def _stop_waiter():
         await _stop.wait()
+        raise KeyboardInterrupt("Stop signal received")
+
+    try:
+        results = await asyncio.gather(ws_task, _stop_waiter(), return_exceptions=True)
+        # Check for exceptions
+        for i, result in enumerate(results):
+            if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
+                if not isinstance(result, KeyboardInterrupt):
+                    MacroDeckLogger.error(None, f"Task {i} failed: {result}")
+                    import traceback
+                    traceback.print_exc()
     except asyncio.CancelledError:
+        pass
+    except KeyboardInterrupt:
         pass
     finally:
         MacroDeckLogger.info(None, "Macro Deck shutting down…")
