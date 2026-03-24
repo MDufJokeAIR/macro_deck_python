@@ -1,10 +1,11 @@
 """
 Built-in plugin: system command / shell actions.
-  - Run Command     : execute any shell command
-  - Open URL        : open a URL in the default browser
-  - Delay           : wait N milliseconds
-  - Toggle Variable : flip a Bool variable
-  - Set Variable    : set any variable to a fixed value
+  - Run Command       : execute any shell command
+  - Open URL          : open a URL in the default browser
+  - Delay             : wait N milliseconds
+  - Toggle Variable   : flip a Bool variable
+  - Set Variable      : set any variable to a fixed value
+  - Switch Profile    : switch to a different profile
 """
 from __future__ import annotations
 import json, logging, subprocess, time, webbrowser
@@ -12,6 +13,7 @@ from typing import List, TYPE_CHECKING
 from macro_deck_python.models.variable import VariableType
 from macro_deck_python.plugins.base import IMacroDeckPlugin, PluginAction
 from macro_deck_python.services.variable_manager import VariableManager
+from macro_deck_python.services.profile_manager import ProfileManager
 if TYPE_CHECKING:
     from macro_deck_python.models.action_button import ActionButton
 logger = logging.getLogger("plugin.commands")
@@ -72,6 +74,21 @@ class SetVariableAction(PluginAction):
         VariableManager.set_value(name, value, vtype,
             plugin_id=self.plugin.package_id if self.plugin else None, save=True)
 
+class SwitchProfileAction(PluginAction):
+    action_id = "switch_profile"; name = "Switch Profile"
+    description = "Switch to a different profile"; can_configure = True
+    def trigger(self, client_id, action_button):
+        cfg = json.loads(self.configuration) if self.configuration else {}
+        profile_id = cfg.get("profile_id", "")
+        if not profile_id:
+            logger.warning("SwitchProfileAction: no profile_id in configuration")
+            return
+        ok = ProfileManager.set_active(profile_id)
+        if ok:
+            logger.info("Switched to profile: %s", profile_id)
+        else:
+            logger.error("SwitchProfileAction: profile not found: %s", profile_id)
+
 class Main(IMacroDeckPlugin):
     package_id = "builtin.commands"; name = "Commands"
     version = "1.0.0"; author = "MacroDeck"
@@ -80,5 +97,5 @@ class Main(IMacroDeckPlugin):
     def enable(self):
         self.actions: List[PluginAction] = [
             RunCommandAction(), OpenUrlAction(), DelayAction(),
-            ToggleVariableAction(), SetVariableAction(),
+            ToggleVariableAction(), SetVariableAction(), SwitchProfileAction(),
         ]

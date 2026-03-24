@@ -22,8 +22,8 @@ class Folder:
     sub_folders: List["Folder"] = field(default_factory=list)
     # key = slider_id
     sliders: Dict[str, SliderWidget] = field(default_factory=dict)
-    columns: int = 5
-    rows: int = 3
+    columns: int = 8
+    rows: int = 4
 
     # ------------------------------------------------------------------
     def get_button(self, row: int, col: int) -> Optional[ActionButton]:
@@ -52,8 +52,8 @@ class Folder:
         f = Folder(
             folder_id=d.get("folder_id", str(uuid.uuid4())),
             name=d.get("name", "Main"),
-            columns=d.get("columns", 5),
-            rows=d.get("rows", 3),
+            columns=d.get("columns", 8),
+            rows=d.get("rows", 4),
         )
         f.buttons = {k: ActionButton.from_dict(v) for k, v in d.get("buttons", {}).items()}
         f.sub_folders = [Folder.from_dict(sf) for sf in d.get("sub_folders", [])]

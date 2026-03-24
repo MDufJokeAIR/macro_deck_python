@@ -24,7 +24,7 @@ except ImportError:
         pass
 
 from macro_deck_python.models.variable import VariableType
-from macro_deck_python.services.action_executor import execute_button
+from macro_deck_python.services.action_executor import execute_button, set_event_loop, set_appearance_update_callback
 from macro_deck_python.services.profile_manager import ProfileManager
 from macro_deck_python.services.variable_manager import VariableManager
 from macro_deck_python.utils.template import render_label
@@ -95,6 +95,12 @@ class MacroDeckServer:
 
         # Register variable-change hook to push updates to all clients
         VariableManager.on_change(self._on_variable_changed)
+        
+        # Register profile-change hook to broadcast profile switches to all clients
+        ProfileManager.on_change(self._on_profile_changed)
+        
+        # Register appearance-update callback for STYLE block execution
+        set_appearance_update_callback(self._on_button_appearance_changed)
 
     # ── connection lifecycle ──────────────────────────────────────────
 
@@ -337,6 +343,32 @@ class MacroDeckServer:
         for cid in dead:
             self._clients.pop(cid, None)
 
+    @staticmethod
+    def _button_depends_on_variable(btn, variable_name: str) -> bool:
+        """Check if a button depends on a variable via state_binding or conditions."""
+        # Direct state binding
+        if btn.state_binding == variable_name:
+            return True
+        
+        # Check if any condition in the button's program depends on this variable
+        def _check_blocks(blocks):
+            for b in blocks:
+                if b.type == "if":
+                    # Check conditions (new format)
+                    if b.conditions:
+                        for cond in b.conditions:
+                            if cond.get("variable_name") == variable_name:
+                                return True
+                    # Fallback for legacy format
+                    elif b.variable_name == variable_name:
+                        return True
+                    # Recursively check nested blocks
+                    if _check_blocks(b.then_blocks) or _check_blocks(b.else_blocks):
+                        return True
+            return False
+        
+        return _check_blocks(btn.program)
+
     def _on_variable_changed(self, variable) -> None:
         """Called from any thread when a variable changes.
 
@@ -364,15 +396,26 @@ class MacroDeckServer:
             profile = ProfileManager.get_client_profile(info.client_id)
             if profile is None:
                 continue
-            changed = False
+            state_changed = False
+            has_dependent_btns = False
+            
+            # Check all buttons for dependencies on this variable
             for pos, btn in profile.folder.buttons.items():
+                # Update button state if it's bound to this variable
                 if btn.state_binding == variable_name:
                     new_state = bool(VariableManager.get_value(variable_name))
                     if btn.state != new_state:
                         btn.state = new_state
-                        changed = True
-            if changed:
+                        state_changed = True
+                
+                # Check if button has conditions depending on this variable
+                if self._button_depends_on_variable(btn, variable_name):
+                    has_dependent_btns = True
+            
+            # Push refresh if state changed OR if any button has conditions depending on this variable
+            if state_changed or has_dependent_btns:
                 affected.add(info.client_id)
+        
         # Push a full BUTTONS refresh to each affected client so colours update
         for client_id in affected:
             info = self._clients.get(client_id)
@@ -381,6 +424,70 @@ class MacroDeckServer:
                     await self._send_buttons(info)
                 except Exception:
                     pass
+
+    def _on_profile_changed(self, profile_id: str) -> None:
+        """Called when the active profile changes (from any thread).
+        
+        Broadcasts updated profile to all clients via WebSocket.
+        """
+        loop = self._loop
+        if loop is None or not loop.is_running():
+            return
+        # Get the new profile and send it to all clients
+        profile = ProfileManager.get_profile(profile_id)
+        if profile is None:
+            logger.error("Profile not found: %s", profile_id)
+            return
+        # Broadcast profile change to all clients
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast(encode("PROFILE_CHANGED", profile_id=profile_id)),
+            loop,
+        )
+        # Also send updated buttons for the new profile to all clients
+        asyncio.run_coroutine_threadsafe(
+            self._broadcast_buttons_for_profile(profile_id),
+            loop,
+        )
+
+    async def _broadcast_buttons_for_profile(self, profile_id: str) -> None:
+        """Send the buttons for the given profile to all connected clients."""
+        profile = ProfileManager.get_profile(profile_id)
+        if profile is None:
+            return
+        for info in list(self._clients.values()):
+            try:
+                await self._send_buttons(info)
+            except Exception as exc:
+                logger.debug("Error sending buttons to client: %s", exc)
+
+    async def _on_button_appearance_changed(self, button_id: str) -> None:
+        """Called when a button's appearance changes due to STYLE block execution.
+        
+        Sends updated button data to all clients so the appearance change is visible.
+        This is called from action executor threads, so we push to async loop safely.
+        """
+        # Find the button and send updated buttons to all clients
+        for profile in ProfileManager.get_all():
+            def _find_button(folder):
+                for btn in folder.buttons.values():
+                    if btn and btn.button_id == button_id:
+                        return btn
+                for subfolder in folder.sub_folders:
+                    found = _find_button(subfolder)
+                    if found:
+                        return found
+                return None
+            
+            btn = _find_button(profile.folder)
+            if btn is not None:
+                # Send updated buttons to all clients viewing this profile
+                for info in list(self._clients.values()):
+                    if ProfileManager.get_client_profile(info.client_id) == profile:
+                        try:
+                            await self._send_buttons(info)
+                        except Exception as exc:
+                            logger.debug("Error sending button update to client: %s", exc)
+                break
 
     # ── slider handlers ───────────────────────────────────────────────
 
@@ -476,6 +583,7 @@ class MacroDeckServer:
         if not _WEBSOCKETS_AVAILABLE:
             raise ImportError("Install websockets: pip install websockets")
         self._loop = asyncio.get_running_loop()   # capture loop for thread-safe callbacks
+        set_event_loop(self._loop)  # pass loop to action executor for STYLE block updates
         self.port = int(self.port)  # guard against port being passed as a string
         logger.info("Starting WebSocket server on ws://%s:%d", self.host, self.port)
 

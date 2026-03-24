@@ -33,6 +33,7 @@ class Block:
     label_color: Optional[str] = None
     background_color: Optional[str] = None
     icon: Optional[str] = None
+    font_size: Optional[str] = None
 
     # ── if fields ──────────────────────────────────────────────────
     # `conditions` is a list of {variable_name, operator, compare_value, logic}
@@ -60,6 +61,7 @@ class Block:
             if self.label_color is not None:   d["label_color"]      = self.label_color
             if self.background_color is not None: d["background_color"] = self.background_color
             if self.icon is not None:          d["icon"]             = self.icon
+            if self.font_size is not None:     d["font_size"]        = self.font_size
         elif self.type == "if":
             # Normalise: always store as conditions list
             conds = self.conditions if self.conditions else [{
@@ -89,15 +91,25 @@ class Block:
             b.label_color      = d.get("label_color")
             b.background_color = d.get("background_color")
             b.icon             = d.get("icon")
+            b.font_size        = d.get("font_size")
         elif t == "if":
             # Support both new (conditions list) and legacy (flat fields)
             if "conditions" in d:
                 b.conditions = d["conditions"]
+                # Also populate top-level fields from first condition for UI compatibility
+                if b.conditions:
+                    first_cond = b.conditions[0]
+                    b.variable_name = first_cond.get("variable_name", "")
+                    b.operator = first_cond.get("operator", "==")
+                    b.compare_value = first_cond.get("compare_value", "")
             else:
+                b.variable_name = d.get("variable_name", "")
+                b.operator = d.get("operator", "==")
+                b.compare_value = d.get("compare_value", "")
                 b.conditions = [{
-                    "variable_name": d.get("variable_name", ""),
-                    "operator":      d.get("operator", "=="),
-                    "compare_value": d.get("compare_value", ""),
+                    "variable_name": b.variable_name,
+                    "operator":      b.operator,
+                    "compare_value": b.compare_value,
                     "logic":         "AND",
                 }]
             b.then_blocks = [Block.from_dict(x) for x in d.get("then_blocks", [])]
@@ -123,7 +135,8 @@ def _migrate_legacy(actions: list, conditions: list) -> List[Block]:
             sb = Block(type="style",
                        label=st.get("label") or None,
                        label_color=st.get("label_color") or None,
-                       background_color=st.get("background_color") or None)
+                       background_color=st.get("background_color") or None,
+                       font_size=st.get("font_size") or None)
             b.then_blocks.append(sb)
         for a in cond.get("actions_true", []):
             b.then_blocks.append(Block(type="action",
@@ -136,7 +149,8 @@ def _migrate_legacy(actions: list, conditions: list) -> List[Block]:
             sb = Block(type="style",
                        label=sf.get("label") or None,
                        label_color=sf.get("label_color") or None,
-                       background_color=sf.get("background_color") or None)
+                       background_color=sf.get("background_color") or None,
+                       font_size=sf.get("font_size") or None)
             b.else_blocks.append(sb)
         for a in cond.get("actions_false", []):
             b.else_blocks.append(Block(type="action",

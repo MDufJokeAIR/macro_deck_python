@@ -3,10 +3,12 @@ ActionExecutor — walks a button's Block program recursively.
 All execution happens in a background thread so the WebSocket loop never blocks.
 """
 from __future__ import annotations
+import asyncio
 import copy
 import logging
+import re
 import threading
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional, Callable, Awaitable
 
 from macro_deck_python.utils.condition import evaluate_condition
 
@@ -14,6 +16,32 @@ if TYPE_CHECKING:
     from macro_deck_python.models.action_button import ActionButton, Block
 
 logger = logging.getLogger("macro_deck.executor")
+
+# Global event loop for async callbacks (set by WebSocket server)
+_event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+# Global callback for pushing button updates to clients
+_appearance_update_callback: Optional[Callable[[str], Awaitable[None]]] = None
+
+def set_event_loop(loop: Optional[asyncio.AbstractEventLoop]) -> None:
+    """Set the event loop for pushing appearance updates."""
+    global _event_loop
+    _event_loop = loop
+
+
+def set_appearance_update_callback(cb: Optional[Callable[[str], Awaitable[None]]]) -> None:
+    """Set callback to push appearance updates when STYLE blocks execute."""
+    global _appearance_update_callback
+    _appearance_update_callback = cb
+
+
+async def _push_button_update(button_id: str) -> None:
+    """Push button appearance update to all clients."""
+    if _appearance_update_callback:
+        try:
+            await _appearance_update_callback(button_id)
+        except Exception as exc:
+            logger.error("Error pushing button update: %s", exc)
 
 
 def _run_action_block(block: "Block", client_id: str, button: "ActionButton") -> None:
@@ -73,13 +101,49 @@ def _walk(blocks: List["Block"], client_id: str, button: "ActionButton") -> None
                 _walk(branch, client_id, button)
             except Exception as exc:
                 logger.error("Condition eval error: %s", exc)
-        # style blocks are appearance-only — no runtime action
+        elif block.type == "style":
+            # Apply style block to button appearance
+            if block.label is not None:            button.label            = block.label
+            if block.label_color is not None:      button.label_color      = block.label_color
+            if block.background_color is not None: button.background_color = block.background_color
+            if block.icon is not None:             button.icon             = block.icon
+            # Font size: extract numeric part if it's a string like "12px" or "1rem"
+            if block.font_size is not None:
+                try:
+                    # Extract leading digits from font_size string (e.g., "12px" → 12)
+                    match = re.match(r'(\d+)', str(block.font_size))
+                    if match:
+                        button.label_font_size = int(match.group(1))
+                except (ValueError, AttributeError):
+                    pass  # Keep current value if parsing fails
+            
+            # Push update to clients so appearance changes are visible
+            # Use run_coroutine_threadsafe to safely call async code from this thread
+            global _event_loop
+            if _event_loop is not None and _event_loop.is_running():
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        _push_button_update(button.button_id),
+                        _event_loop
+                    )
+                except Exception as exc:
+                    logger.debug("Could not push style update: %s", exc)
 
 
 def execute_button(button: "ActionButton", client_id: str) -> None:
     """Entry point — called when a button is pressed."""
     def _run() -> None:
         _walk(button.program, client_id, button)
+        # Push final update to ensure appearance reflects any variable changes
+        global _event_loop
+        if _event_loop is not None and _event_loop.is_running():
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    _push_button_update(button.button_id),
+                    _event_loop
+                )
+            except Exception as exc:
+                logger.debug("Could not push final update: %s", exc)
 
     t = threading.Thread(target=_run, daemon=True, name=f"exec-{client_id[:8]}")
     t.start()

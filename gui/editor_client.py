@@ -436,7 +436,7 @@ let activeProfileId = null;
 let folderStack = [];   // [{folder_id, name}]
 let buttons = {};       // "row_col" → button object
 let subFolders = [];
-let cols = 5, rows = 3;
+let cols = 8, rows = 4;
 let selectedPos = null; // currently selected "row_col"
 let allActions = [];    // [{plugin_id, action_id, name, description, can_configure}]
 let allVariables = [];  // [{name, type, value}]
@@ -505,8 +505,8 @@ async function boot() {
       'Numpad':['num0','num1','num2','num3','num4','num5','num6','num7',
                 'num8','num9','num_add','num_sub','num_mul','num_div',
                 'num_decimal','num_enter'],
-      'OEM':['oem_1','oem_2','oem_3','oem_4','oem_5','oem_6','oem_7',
-             'oem_plus','oem_minus','oem_comma','oem_period'],
+      'OEM':['oem_1','oem_2','oem_3','oem_4','oem_5','oem_6','oem_7','oem_8',
+             'oem_plus','oem_minus','oem_comma','oem_period','oem_102'],
       'Media':['media_play_pause','media_next','media_prev','media_stop',
                'volume_up','volume_down','volume_mute'],
       'Mouse':['mouse_left','mouse_right','mouse_middle'],
@@ -574,8 +574,8 @@ async function loadGrid() {
   const data = await GET(url);
   if (data.error) { toast('Failed to load grid', true); return; }
 
-  cols = data.columns || 5;
-  rows = data.rows    || 3;
+  cols = data.columns || 8;
+  rows = data.rows    || 4;
   document.getElementById('cols-inp').value = cols;
   document.getElementById('rows-inp').value = rows;
 
@@ -994,11 +994,11 @@ function renderBlock(block, path) {
     sbody.className = 'block-body';
     sbody.innerHTML = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-        <div>
-          <label style="font-size:.7rem;color:var(--muted)">Label <span style="opacity:.5">(blank = unchanged)</span></label>
-          <input class="ctrl" style="width:100%;font-size:.75rem"
-            value="${escHtml(block.label||'')}" placeholder="(unchanged)"
-            onchange="setBlockFieldRender('${pathEnc(path)}','label',this.value||null)">
+        <div style="grid-column:1/-1">
+          <label style="font-size:.7rem;color:var(--muted)">Label <span style="opacity:.5">(blank = unchanged, supports multiple lines)</span></label>
+          <textarea class="ctrl" style="width:100%;font-size:.75rem;min-height:60px;resize:vertical;font-family:inherit"
+            placeholder="(unchanged)"
+            onchange="setBlockFieldRender('${pathEnc(path)}','label',this.value||null)">${escHtml(block.label||'')}</textarea>
         </div>
         <div>
           <label style="font-size:.7rem;color:var(--muted)">Label colour</label>
@@ -1010,6 +1010,12 @@ function renderBlock(block, path) {
               placeholder="#ffffff"
               onchange="setBlockFieldRender('${pathEnc(path)}','label_color',this.value||null)">
           </div>
+        </div>
+        <div>
+          <label style="font-size:.7rem;color:var(--muted)">Font size</label>
+          <input class="ctrl" style="width:100%;font-size:.75rem" value="${escHtml(block.font_size||'')}"
+            placeholder="e.g., 12px, 1rem, 80%"
+            onchange="setBlockFieldRender('${pathEnc(path)}','font_size',this.value||null)">
         </div>
         <div>
           <label style="font-size:.7rem;color:var(--muted)">Background</label>
@@ -1282,6 +1288,16 @@ function makeSmartActionConfig(block, path) {
          ${['Bool','Integer','Float','String'].map(t=>
            `<option ${(cfg.type||'String')===t?'selected':''}>${t}</option>`).join('')}
        </select></div>`;
+  } else if (aid === 'switch_profile') {
+    div.innerHTML = `<div>
+      <label style="font-size:.7rem;color:var(--muted)">Target Profile</label>
+      <select class="ctrl" style="font-size:.75rem;width:100%"
+        onchange="updateBlockCfg('${pathEnc(path)}','profile_id',this.value)">
+        <option value="">— select —</option>
+        ${(profiles||[]).map(p=>
+          `<option value="${escHtml(p.id)}" ${cfg.profile_id===p.id?'selected':''}>${escHtml(p.name)} (${escHtml(p.id)})</option>`).join('')}
+      </select>
+    </div>`;
   } else if (aid === 'hotkey') {
     div.innerHTML = inp('Keys (e.g. ctrl+c)', 'keys', cfg.keys, 'ctrl+c');
   } else if (aid === 'type_text') {
@@ -1689,8 +1705,8 @@ async function onDrop(e, targetPos) {
 // Grid resize
 // ═══════════════════════════════════════════════════════════════════
 async function resizeGrid() {
-  const newCols = parseInt(document.getElementById('cols-inp').value) || 5;
-  const newRows = parseInt(document.getElementById('rows-inp').value) || 3;
+  const newCols = parseInt(document.getElementById('cols-inp').value) || 8;
+  const newRows = parseInt(document.getElementById('rows-inp').value) || 4;
   // Persist on the profile's folder (not global config)
   await PUT(`/api/profiles/${activeProfileId}`, { columns: newCols, rows: newRows });
   cols = newCols; rows = newRows;

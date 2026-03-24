@@ -22,8 +22,8 @@ _DEFAULTS = {
     "log_level": "INFO",
     "show_notifications": True,
     "check_updates": True,
-    "deck_rows": 3,
-    "deck_cols": 5,
+    "deck_rows": 4,
+    "deck_cols": 8,
     "gui_enabled": True,
     "web_config_port": 8193,
 }

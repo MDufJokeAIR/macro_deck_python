@@ -1,0 +1,8 @@
+{
+  "package_id": "builtin.backup_import",
+  "name": "Backup Import",
+  "description": "Import profiles and variables from original MacroDeck App backups",
+  "version": "1.0.0",
+  "author": "MacroDeck",
+  "target_api_version": 1
+}

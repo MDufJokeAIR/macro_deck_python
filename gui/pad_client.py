@@ -61,9 +61,10 @@ html,body{height:100%;overflow:hidden;background:#0d0d1a;color:#e0e0e0;
 .macro-btn.state-on{background:#1e3a5f;border-color:#7c83fd}
 .macro-btn.has-actions{border-color:#2a3a5a}
 .macro-btn img.btn-icon{width:60%;height:60%;object-fit:contain;flex-shrink:0}
-.macro-btn .btn-label{font-size:.65rem;text-align:center;line-height:1.2;
-  word-break:break-word;max-width:100%;overflow:hidden;
-  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.macro-btn .btn-label{font-size:clamp(0.5rem, 7vw, 1.2rem);text-align:center;line-height:1.1;
+  word-break:break-word;max-width:90%;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+  flex-shrink:1;min-height:auto}
 .macro-btn.empty{cursor:default;border-color:transparent;background:transparent}
 .macro-btn.is-slider{background:#0f1f3a;border:1px solid #7c83fd55;
   cursor:default;border-radius:8px;padding:8px 4px;overflow:visible}
@@ -150,8 +151,8 @@ let activeProfileId = null;
 let folderStack = [];           // stack of {folder_id, folder_name}
 // Cache last render data so resize can replay renderGrid
 let _lastButtons = [], _lastSubFolders = [], _lastSliderCells = {};
-let currentColumns = 5;
-let currentRows    = 3;
+let currentColumns = 8;
+let currentRows    = 4;
 let variables  = {};            // name → value
 let sliderValues = {};          // slider_id → current value
 let reconnectDelay = 500;
@@ -184,7 +185,7 @@ console.log('📡 Booting Macro Deck PAD...');
 function connect() {
   console.log('🌐 connect() called, wsHost=' + wsHost);
   // On first connection, use the current hostname
-  // If localhost fails, fallback to 127.0.0.1
+  // If 127.0.0.1 fails, fallback to localhost
   if (!wsHost) {
     wsHost = window.location.hostname;
     console.log('📍 Set wsHost to ' + wsHost);
@@ -215,9 +216,9 @@ function connect() {
 
   ws.onerror = err => {
     console.error('❌ WS error connecting to ' + wsHost, err);
-    // On first connection error with localhost, try 127.0.0.1
-    if (wsHost === 'localhost' && reconnectDelay < 1000) {
-      console.log('🔄 Localhost failed, trying 127.0.0.1...');
+    // On first connection error with 127.0.0.1, try localhost
+    if (wsHost === '127.0.0.1' && reconnectDelay < 1000) {
+      console.log('🔄 127.0.0.1 failed, trying localhost...');
       wsHost = '127.0.0.1';
       reconnectDelay = 100;  // Quick retry with new host
     }
@@ -241,8 +242,8 @@ function handleMessage(msg) {
       break;
 
     case 'BUTTONS':
-      currentColumns  = msg.columns || 5;
-      currentRows     = msg.rows    || 3;
+      currentColumns  = msg.columns || 8;
+      currentRows     = msg.rows    || 4;
       renderGrid(msg.buttons || [], msg.sub_folders || [], msg.slider_cells || {});
       break;
 
@@ -391,6 +392,10 @@ function makeButton(btn) {
     const span = document.createElement('span');
     span.className = 'btn-label';
     span.style.color = btn.label_color || '#ffffff';
+    // Apply font size from server (in px), with adaptive scaling
+    if (btn.label_font_size) {
+      span.style.fontSize = `clamp(8px, ${btn.label_font_size * 0.8}px, ${btn.label_font_size}px)`;
+    }
     span.dataset.labelTemplate = btn.label;
     span.textContent = renderTemplate(btn.label);
     el.appendChild(span);

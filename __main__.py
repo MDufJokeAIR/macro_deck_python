@@ -62,6 +62,10 @@ def _build_parser() -> argparse.ArgumentParser:
     np.add_argument("--out",      default=None,
                     help="Output parent directory (default: ~/.macro_deck/plugins)")
 
+    # ── import-backup ────────────────────────────────────────────────
+    ib = sub.add_parser("import-backup", help="Import original MacroDeck App backup")
+    ib.add_argument("backup_path", help="Path to unzipped backup directory")
+
     # Allow `python -m macro_deck_python` with no subcommand → start server
     _add_server_args(root)
     return root
@@ -185,7 +189,7 @@ async def _main_async(args: argparse.Namespace) -> None:
                 runner = _web.AppRunner(create_app())
                 await runner.setup()
                 await _web.TCPSite(runner, "0.0.0.0", config_port).start()
-                MacroDeckLogger.info(None, f"Config UI → http://localhost:{config_port}")
+                MacroDeckLogger.info(None, f"Config UI → http://127.0.0.1:{config_port}")
             except Exception as exc:
                 import traceback
                 MacroDeckLogger.error(None, f"Web config UI error: {exc}")
@@ -207,9 +211,9 @@ async def _main_async(args: argparse.Namespace) -> None:
         hot_reload_watcher.start()
 
     MacroDeckLogger.info(None, "Macro Deck ready ✓")
-    MacroDeckLogger.info(None, f"  Button pad  → http://localhost:{config_port}")
-    MacroDeckLogger.info(None, f"  Admin UI    → http://localhost:{config_port}/admin  (localhost only)")
-    MacroDeckLogger.info(None, f"  WebSocket   → ws://localhost:{port}")
+    MacroDeckLogger.info(None, f"  Button pad  → http://127.0.0.1:{config_port}")
+    MacroDeckLogger.info(None, f"  Admin UI    → http://127.0.0.1:{config_port}/admin  (localhost only)")
+    MacroDeckLogger.info(None, f"  WebSocket   → ws://127.0.0.1:{port}")
     MacroDeckLogger.info(None, f"  ⚠ On the Raspberry Pi browser open: ")
     MacroDeckLogger.info(None, f"    http://{display_ip}:{config_port}  (pad only, editor blocked)")
 
@@ -268,6 +272,13 @@ def main() -> None:
             sys.exit(1)
         except Exception as exc:
             print(f"❌  Scaffold failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+    elif args.command == "import-backup":
+        from macro_deck_python.plugins.builtin.backup_import.main import import_backup_command
+        try:
+            import_backup_command(args.backup_path)
+        except Exception as exc:
+            print(f"❌  Import failed: {exc}", file=sys.stderr)
             sys.exit(1)
     else:
         try:

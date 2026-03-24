@@ -68,7 +68,7 @@ class TrayIcon:
                 pass
 
     def _open_config(self, icon, item) -> None:
-        webbrowser.open(f"http://localhost:{self.web_config_port}")
+        webbrowser.open(f"http://127.0.0.1:{self.web_config_port}")
 
     def _quit(self, icon, item) -> None:
         self.stop()

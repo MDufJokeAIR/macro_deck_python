@@ -6,9 +6,10 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from macro_deck_python.models.profile import Profile, Folder
+from macro_deck_python.models.action_button import ActionButton, Block
 
 logger = logging.getLogger("macro_deck.profiles")
 
@@ -20,12 +21,14 @@ class ProfileManager:
     _active_profile: Optional[Profile] = None
     # Maps client_id -> profile_id
     _client_profiles: Dict[str, str] = {}
+    # Callbacks triggered when active profile changes
+    _on_change_callbacks: List[Callable[[str], None]] = []
 
     # ------------------------------------------------------------------
     @classmethod
     def load(cls, path: Path = _PROFILES_FILE) -> None:
         if not path.exists():
-            default = Profile(name="Default")
+            default = cls._create_default_profile()
             cls._profiles[default.profile_id] = default
             cls._active_profile = default
             cls.save(path)
@@ -43,6 +46,57 @@ class ProfileManager:
             cls._active_profile = cls._profiles[active_id]
         elif cls._profiles:
             cls._active_profile = next(iter(cls._profiles.values()))
+        else:
+            # No profiles loaded, create default
+            default = cls._create_default_profile()
+            cls._profiles[default.profile_id] = default
+            cls._active_profile = default
+            cls.save(path)
+
+    @classmethod
+    def _create_default_profile(cls) -> Profile:
+        """Create the default profile with a single centered button that toggles color."""
+        profile = Profile(name="Default")
+        # Set grid to 1x1 (single button)
+        profile.folder.columns = 1
+        profile.folder.rows = 1
+        
+        # Create a button that changes color when toggled
+        btn = ActionButton(
+            label="Color",
+            background_color="#000000",  # Black
+            label_color="#FFFFFF"         # White text
+        )
+        
+        # Add IF block: if button state is true, use white background; else use black
+        if_block = Block(
+            type="if",
+            variable_name="",
+            operator="==",
+            compare_value="",
+            conditions=[],
+        )
+        
+        # Then block (state == true): white background with black text
+        then_style = Block(
+            type="style",
+            background_color="#FFFFFF",
+            label_color="#000000"
+        )
+        if_block.then_blocks.append(then_style)
+        
+        # Else block (state == false): black background with white text  
+        else_style = Block(
+            type="style",
+            background_color="#000000",
+            label_color="#FFFFFF"
+        )
+        if_block.else_blocks.append(else_style)
+        
+        btn.program.append(if_block)
+        profile.folder.set_button(0, 0, btn)
+        
+        return profile
 
     @classmethod
     def save(cls, path: Path = _PROFILES_FILE) -> None:
@@ -79,6 +133,12 @@ class ProfileManager:
         if p:
             cls._active_profile = p
             cls.save()
+            # Trigger callbacks
+            for cb in list(cls._on_change_callbacks):
+                try:
+                    cb(profile_id)
+                except Exception as exc:
+                    logger.error("Profile change callback failed: %s", exc)
             return True
         return False
 
@@ -89,8 +149,21 @@ class ProfileManager:
         if p:
             cls._active_profile = p
             await cls.save_async()
+            # Trigger callbacks
+            for cb in list(cls._on_change_callbacks):
+                try:
+                    cb(profile_id)
+                except Exception as exc:
+                    logger.error("Profile change callback failed: %s", exc)
             return True
         return False
+
+    @classmethod
+    def on_change(cls, cb: Callable[[str], None]) -> None:
+        """Register a callback to be called when active profile changes.
+        The callback receives the new profile_id.
+        """
+        cls._on_change_callbacks.append(cb)
 
     @classmethod
     def set_client_profile(cls, client_id: str, profile_id: str) -> None:

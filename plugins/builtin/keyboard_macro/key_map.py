@@ -256,7 +256,7 @@ KEY_GROUPS: Dict[str, List[str]] = {
                        "num7","num8","num9","num_add","num_sub","num_mul",
                        "num_div","num_decimal","num_enter"],
     "OEM / Punctuation": ["oem_1","oem_2","oem_3","oem_4","oem_5","oem_6",
-                           "oem_7","oem_plus","oem_minus","oem_comma",
+                           "oem_7","oem_8","oem_plus","oem_minus","oem_comma",
                            "oem_period","oem_102"],
     "Media":          ["media_play_pause","media_next","media_prev","media_stop",
                        "volume_up","volume_down","volume_mute","media_select",

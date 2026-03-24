@@ -155,7 +155,7 @@ class Main(IMacroDeckPlugin):
             SwitchSceneAction(), ToggleSourceAction(), SetVolumeAction(),
         ]
         self._stop = threading.Event()
-        host = PluginConfiguration.get_value(self, "host", "localhost")
+        host = PluginConfiguration.get_value(self, "host", "127.0.0.1")
         port = int(PluginConfiguration.get_value(self, "port", "4455"))
         password = PluginConfiguration.get_value(self, "password", "")
         if _bridge.connect(host, port, password):

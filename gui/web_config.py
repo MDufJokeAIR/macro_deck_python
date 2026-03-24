@@ -1,6 +1,6 @@
 """
 Web-based configuration UI server (replaces the WinForms GUI).
-Serves an HTML5 single-page app on http://localhost:8193
+Serves an HTML5 single-page app on http://127.0.0.1:8193
 Uses aiohttp for a lightweight async HTTP + REST API backend.
 """
 from __future__ import annotations
@@ -142,8 +142,40 @@ async def api_create_profile(request: web.Request) -> web.Response:
 
 async def api_delete_profile(request: web.Request) -> web.Response:
     pid = request.match_info["profile_id"]
+    profile = ProfileManager.get_profile(pid)
+    if profile is None:
+        raise web.HTTPNotFound(reason="Profile not found")
+    
+    # Get all variables associated with this profile
+    profile_name = profile.name
+    associated_vars = []
+    for r in range(profile.folder.rows):
+        for c in range(profile.folder.columns):
+            var_name = _auto_var_name(profile_name, f"{r}_{c}")
+            if VariableManager.get_variable(var_name) is not None:
+                associated_vars.append(var_name)
+    
+    # Check if user requested to delete variables
+    delete_vars = False
+    try:
+        body = await request.json()
+        delete_vars = body.get("delete_variables", False)
+    except:
+        pass  # No body, just proceed with profile deletion
+    
+    # Delete the profile
     ok = await ProfileManager.delete_profile_async(pid)
-    return _json({"ok": ok})
+    
+    # Delete associated variables if requested
+    if ok and delete_vars and associated_vars:
+        for var_name in associated_vars:
+            await VariableManager.delete_async(var_name)
+    
+    return _json({
+        "ok": ok,
+        "associated_variables": associated_vars,
+        "deleted_variables": associated_vars if delete_vars else []
+    })
 
 
 async def api_set_active_profile(request: web.Request) -> web.Response:
@@ -422,6 +454,56 @@ async def api_uninstall_extension(request: web.Request) -> web.Response:
     return _json({"ok": ok})
 
 
+async def api_import_backup(request: web.Request) -> web.Response:
+    """Import a MacroDeck backup from uploaded ZIP file."""
+    import tempfile
+    import zipfile
+    import shutil
+    from macro_deck_python.plugins.builtin.backup_import.main import BackupConverter
+    
+    try:
+        # Read multipart form data
+        reader = await request.multipart()
+        field = await reader.next()
+        
+        if field.name != "backup_file":
+            raise ValueError("Expected 'backup_file' field")
+        
+        # Create temporary directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            zip_path = temp_path / "backup.zip"
+            extract_path = temp_path / "backup"
+            
+            # Write uploaded file to temp location
+            with open(zip_path, "wb") as f:
+                while True:
+                    chunk = await field.read_chunk()
+                    if not chunk:
+                        break
+                    f.write(chunk)
+            
+            # Extract ZIP
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(extract_path)
+            
+            # Import from extracted backup
+            result = BackupConverter.import_backup(str(extract_path))
+            
+            # Data is already saved by import_backup and loaded in memory
+            # Don't reload from disk as it would overwrite the in-memory state
+            
+            return _json(result)
+            
+    except ValueError as e:
+        raise web.HTTPBadRequest(reason=str(e))
+    except zipfile.BadZipFile:
+        raise web.HTTPBadRequest(reason="File is not a valid ZIP archive")
+    except Exception as e:
+        logger.exception("Backup import error: %s", e)
+        raise web.HTTPInternalServerError(reason=f"Import failed: {str(e)}")
+
+
 # ── serve SPA ─────────────────────────────────────────────────────────
 
 async def serve_index(request: web.Request) -> web.Response:
@@ -492,14 +574,10 @@ async def api_keymap_groups(request: web.Request) -> web.Response:
         from macro_deck_python.plugins.builtin.keyboard_macro.key_map import KEY_GROUPS, KEY_MAP
         result = {}
         for group, keys in KEY_GROUPS.items():
-            result[group] = [
-                {"key": k, "label": KEY_MAP[k].get("label", k)}
-                for k in keys
-                if k in KEY_MAP
-            ]
-        return _json(result)
+            result[group] = [k for k in keys if k in KEY_MAP]
+        return _json({"groups": result})
     except ImportError:
-        return _json({})
+        return _json({"groups": {}})
 
 
 # ── app factory ───────────────────────────────────────────────────────
@@ -530,6 +608,7 @@ def create_app() -> "web.Application":
     app.router.add_get("/api/store", api_get_store)
     app.router.add_post("/api/store/{package_id}/install", api_install_extension)
     app.router.add_delete("/api/store/{package_id}", api_uninstall_extension)
+    app.router.add_post("/api/backup/import", api_import_backup)
 
     _register_icon_routes(app)
     _register_macrokeys_routes(app)
@@ -590,12 +669,14 @@ _FALLBACK_HTML = """<!DOCTYPE html>
   <a href="#" onclick="show('variables')" id="nav-variables">Variables</a>
   <a href="#" onclick="show('plugins')" id="nav-plugins">Plugins</a>
   <a href="#" onclick="show('store')" id="nav-store">Extension Store</a>
+  <a href="#" onclick="show('backup')" id="nav-backup">Import Backup</a>
   <a href="#" onclick="show('config')" id="nav-config">Settings</a>
 </nav>
 <main id="main"></main>
 <div id="toast"></div>
 <script>
 const api=async(m,u,b)=>{const r=await fetch(u,{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined});return r.json()};
+const apiMultipart=async(url,formData)=>{const r=await fetch(url,{method:'POST',body:formData});return r.json()};
 const toast=(msg,err=false)=>{const t=document.getElementById('toast');t.textContent=msg;t.style.background=err?'#e05a5a':'#7c83fd';t.style.display='block';setTimeout(()=>t.style.display='none',3000)};
 const show=async(page)=>{
   document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
@@ -621,6 +702,10 @@ const show=async(page)=>{
     const d=await api('GET','/api/store');
     const rows=d.map(e=>`<tr><td>${e.name}</td><td>${e.type}</td><td>${e.version}</td><td>${e.author}</td><td>${e.installed?`<span class="badge">v${e.installed_version}</span>`:''}</td><td>${e.installed?`<button class="danger" onclick="uninstall('${e.package_id}')">Uninstall</button>`:`<button onclick="install('${e.package_id}')">Install</button>`}</td></tr>`).join('');
     m.innerHTML=`<h1>Extension Store</h1><div class="card"><table><tr><th>Name</th><th>Type</th><th>Version</th><th>Author</th><th>Installed</th><th></th></tr>${rows||'<tr><td colspan=6>No extensions found</td></tr>'}</table></div>`;
+  }else if(page==='backup'){
+    const preservedProfiles=document.getElementById('imported_profiles_section')?document.getElementById('imported_profiles_section').innerHTML:'';
+    m.innerHTML=`<h1>Import MacroDeck Backup</h1><div class="card"><p style="color:#aaa;margin-bottom:16px">Upload a backup ZIP file from the original MacroDeck App to import profiles, buttons, and variables.</p><input type="file" id="backup_file" accept=".zip" style="margin-bottom:16px"><button onclick="importBackup()">Upload & Import</button></div><div id="import_result"></div><div id="imported_profiles_section"></div>`;
+    if(preservedProfiles){document.getElementById('imported_profiles_section').innerHTML=preservedProfiles;}else{await restoreBackupsUI();}
   }else if(page==='config'){
     const d=await api('GET','/api/config');
     m.innerHTML=`<h1>Settings</h1><div class="card">${Object.entries(d).map(([k,v])=>`<label style="display:block;margin-bottom:8px;color:#aaa;font-size:.85rem">${k}<input id="cfg_${k}" value="${v}"></label>`).join('')}<button onclick="saveConfig()">Save</button></div>`;
@@ -628,11 +713,16 @@ const show=async(page)=>{
 };
 window.createProfile=async()=>{const n=document.getElementById('pname').value;if(!n)return;await api('POST','/api/profiles',{name:n});toast('Profile created');show('profiles')};
 window.activateProfile=async(id)=>{await api('POST',`/api/profiles/${id}/activate`);toast('Profile activated');show('profiles')};
-window.deleteProfile=async(id)=>{if(!confirm('Delete?'))return;await api('DELETE',`/api/profiles/${id}`);toast('Deleted');show('profiles')};
+window.deleteProfile=async(id)=>{const r=await api('GET',`/api/profiles`);const p=r.profiles.find(pr=>pr.id===id);if(!p)return;const confirmed=confirm(`Delete profile "${p.name}"?\n\nThis profile may have associated variables (x1y1, x1y2, etc). Do you want to delete those too?\n\n[OK] = Delete profile and variables\n[Cancel] = Don't delete`);if(!confirmed)return;await api('DELETE',`/api/profiles/${id}`,{delete_variables:true});toast('Deleted');show('profiles')};
+window.saveBackupToStorage=async(backupId,backupName,profiles,variables)=>{const backups=JSON.parse(localStorage.getItem('importedBackups')||'{}');backups[backupId]={name:backupName,profiles:profiles,variables:variables};localStorage.setItem('importedBackups',JSON.stringify(backups))};
+window.restoreBackupsUI=async()=>{const backups=JSON.parse(localStorage.getItem('importedBackups')||'{}');const profSec=document.getElementById('imported_profiles_section');for(const [backupId,[backupName,data]]of Object.entries(backups).map(e=>[e[0],[e[1].name,e[1]]])){const profList=data.profiles.map(p=>`<div data-profile-id="${p.id}" style="padding:6px 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #444"><span>${p.name}</span><button class="danger" style="padding:4px 8px;font-size:0.85rem" onclick="deleteProfileFromBackup('${p.id}')">Delete</button></div>`).join('');const backupContainer=document.createElement('div');backupContainer.id=backupId;backupContainer.className='card';backupContainer.style.marginTop='20px';backupContainer.dataset.importedVars=JSON.stringify(data.variables||[]);backupContainer.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0">Imported profiles: ${backupName}</h3><button class="danger" style="padding:4px 8px;font-size:0.85rem" onclick="deleteBackupAll('${backupName}')">Delete All</button></div><div>${profList}</div>`;if(!profSec.querySelector(`#${backupId}`)){profSec.appendChild(backupContainer)}}};
+window.deleteProfileFromBackup=async(id)=>{const confirmed=confirm(`Delete this profile?`);if(!confirmed)return;try{await api('DELETE',`/api/profiles/${id}`,{delete_variables:false});toast('Deleted');const profElement=document.querySelector(`[data-profile-id="${id}"]`);if(profElement){const backupContainer=profElement.closest('[id]');profElement.remove();const backups=JSON.parse(localStorage.getItem('importedBackups')||'{}');for(const backup of Object.values(backups)){backup.profiles=backup.profiles.filter(p=>p.id!==id)}localStorage.setItem('importedBackups',JSON.stringify(backups))}}catch(e){alert('Failed to delete: '+e.message)}};
+window.deleteBackupAll=async(backupName)=>{const confirmed=confirm(`Delete all profiles from this backup?`);if(!confirmed)return;try{const backupId=backupName.replace(/[^a-zA-Z0-9_-]/g,'_');const backupContainer=document.getElementById(backupId);const profileElements=backupContainer.querySelectorAll('[data-profile-id]');for(const elem of profileElements){const profileId=elem.getAttribute('data-profile-id');await api('DELETE',`/api/profiles/${profileId}`,{delete_variables:true})}const importedVars=backupContainer.dataset.importedVars?JSON.parse(backupContainer.dataset.importedVars):[];for(const varName of importedVars){try{await api('DELETE',`/api/variables/${varName}`)}catch(e){}}profileElements.forEach(e=>e.remove());const backups=JSON.parse(localStorage.getItem('importedBackups')||'{}');delete backups[backupId];localStorage.setItem('importedBackups',JSON.stringify(backups));if(backupContainer.querySelectorAll('[data-profile-id]').length===0){backupContainer.remove()}else{toast('All profiles deleted')}}catch(e){alert('Failed to delete: '+e.message)}};
 window.createVar=async()=>{const n=document.getElementById('vname').value,t=document.getElementById('vtype').value,v=document.getElementById('vval').value;await api('POST','/api/variables',{name:n,type:t,value:v});toast('Variable set');show('variables')};
 window.deleteVar=async(n)=>{await api('DELETE',`/api/variables/${n}`);toast('Deleted');show('variables')};
 window.install=async(id)=>{toast('Installing…');const r=await api('POST',`/api/store/${id}/install`);toast(r.ok?'Installed!':'Install failed',!r.ok);show('store')};
 window.uninstall=async(id)=>{const r=await api('DELETE',`/api/store/${id}`);toast(r.ok?'Uninstalled':'Failed',!r.ok);show('store')};
+window.importBackup=async()=>{const f=document.getElementById('backup_file').files[0];if(!f)return alert('Please select a file');const backupName=f.name.replace('.zip','');const backupId=backupName.replace(/[^a-zA-Z0-9_-]/g,'_');toast('Uploading & importing...');const fd=new FormData();fd.append('backup_file',f);try{const r=await apiMultipart('/api/backup/import',fd);const res=document.getElementById('import_result');res.innerHTML=`<div class="card" style="margin-top:20px"><h2>Import Results</h2><p>✓ Profiles: ${r.profiles_imported}<br>✓ Variables: ${r.variables_imported}<br>✓ Actions: ${r.actions_converted}</p>${r.warnings.length?`<p style="color:#f0ad4e;margin-top:8px"><strong>⚠ Warnings (${r.warnings.length}):</strong><br>${r.warnings.slice(0,5).map(w=>'  • '+w).join('<br>')}</p>`:''}${r.errors.length?`<p style="color:#e05a5a;margin-top:8px"><strong>✗ Errors (${r.errors.length}):</strong><br>${r.errors.slice(0,5).map(e=>'  • '+e).join('<br>')}</p>`:''}</div>`;if(r.imported_profiles && r.imported_profiles.length>0){await saveBackupToStorage(backupId,backupName,r.imported_profiles,r.imported_variables);await restoreBackupsUI()}toast('Import complete!')}catch(e){alert('Import failed: '+e.message)}};
 window.saveConfig=async()=>{const cfg={};document.querySelectorAll('[id^=cfg_]').forEach(i=>{cfg[i.id.replace('cfg_','')]=i.value});await api('POST','/api/config',cfg);toast('Settings saved')};
 show('status');
 </script>
