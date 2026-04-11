@@ -558,6 +558,27 @@ async def serve_editor(request: web.Request) -> web.Response:
     return web.Response(text=get_editor_html(), content_type="text/html")
 
 
+async def serve_keyboard_tester(request: web.Request) -> web.Response:
+    """Serve the keyboard layout tester HTML."""
+    from macro_deck_python.utils.keyboard_tester import create_keyboard_test_html
+    return web.Response(text=create_keyboard_test_html(), content_type="text/html")
+
+
+async def serve_keyboard_mapper(request: web.Request) -> web.Response:
+    """Serve the keyboard layout mapper HTML."""
+    try:
+        mapper_path = Path(__file__).parent.parent.parent / "keyboard_mapper.html"
+        if not mapper_path.exists():
+            return web.Response(text="keyboard_mapper.html not found", status=404)
+        
+        with open(mapper_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return web.Response(text=html_content, content_type="text/html")
+    except Exception as e:
+        logger.error(f"Failed to serve keyboard mapper: {e}")
+        return web.Response(text=f"Error: {str(e)}", status=500)
+
+
 async def api_info(request: web.Request) -> web.Response:
     """Return basic server info (version, websocket port)."""
     from macro_deck_python.core.config_manager import ConfigManager
@@ -578,6 +599,17 @@ async def api_keymap_groups(request: web.Request) -> web.Response:
         return _json({"groups": result})
     except ImportError:
         return _json({"groups": {}})
+
+
+async def api_keyboard_layout(request: web.Request) -> web.Response:
+    """Return keyboard layout information and character mappings."""
+    try:
+        from macro_deck_python.utils.keyboard_layout import get_current_layout_info
+        info = get_current_layout_info()
+        return _json(info)
+    except Exception as e:
+        logger.error(f"Failed to get keyboard layout info: {e}")
+        return _json({"error": str(e), "layout": "UNKNOWN"}, status=500)
 
 
 # ── app factory ───────────────────────────────────────────────────────
@@ -618,6 +650,9 @@ def create_app() -> "web.Application":
     app.router.add_get("/api/info", api_info)
     app.router.add_get("/editor", serve_editor)
     app.router.add_get("/api/keymap/groups", api_keymap_groups)
+    app.router.add_get("/api/keyboard/layout", api_keyboard_layout)
+    app.router.add_get("/keyboard/tester", serve_keyboard_tester)
+    app.router.add_get("/keyboard/mapper", serve_keyboard_mapper)
     app.router.add_get("/pad", serve_pad)
     app.router.add_get("/", serve_pad)      # root → pad client
     app.router.add_get("/admin", serve_index)

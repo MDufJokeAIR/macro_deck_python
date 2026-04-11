@@ -137,11 +137,19 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
 /* ── Block program editor ────────────────────────────────────────── */
 .block-list{display:flex;flex-direction:column;gap:4px}
 .block{border-radius:6px;padding:6px 8px;border:1px solid var(--border);
-  background:var(--surface3);position:relative}
+  background:var(--surface3);position:relative;transition:opacity .15s,background .15s}
+.block[draggable="true"]{cursor:grab}
+.block[draggable="true"]:active{cursor:grabbing}
 .block.block-action{border-left:3px solid #7c83fd}
 .block.block-style{border-left:3px solid #4ade80}
 .block.block-if{border-left:3px solid #f59e0b;padding-bottom:4px}
-.block-header{display:flex;align-items:center;gap:6px;font-size:.8rem}
+.block.dragging{opacity:.5;background:var(--surface2)}
+.block.drag-over-target{border:2px dashed #7c83fd;background:var(--surface3)}
+.block-header{display:flex;align-items:center;gap:6px;font-size:.8rem;cursor:grab}
+.block-header:active{cursor:grabbing}
+.block-drag-handle{color:var(--muted);font-size:.7rem;cursor:grab;padding:2px;flex-shrink:0;user-select:none}
+.block-drag-handle:hover{color:var(--accent)}
+.block-header:active .block-drag-handle{cursor:grabbing}
 .block-badge{font-size:.65rem;padding:1px 6px;border-radius:10px;
   font-weight:600;white-space:nowrap}
 .badge-action{background:#7c83fd33;color:#7c83fd}
@@ -961,14 +969,48 @@ function renderProgram() {
 function renderBlock(block, path) {
   const div = document.createElement('div');
   div.className = `block block-${block.type}`;
+  div.draggable = true;
 
   const pathStr = pathEnc(path);
+  
+  // Drag event handlers
+  div.ondragstart = (e) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('blockPath', pathStr);
+    div.classList.add('dragging');
+  };
+  
+  div.ondragend = () => {
+    div.classList.remove('dragging');
+    document.querySelectorAll('.drag-over-target').forEach(el => el.classList.remove('drag-over-target'));
+  };
+  
+  div.ondragover = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    div.classList.add('drag-over-target');
+  };
+  
+  div.ondragleave = () => {
+    div.classList.remove('drag-over-target');
+  };
+  
+  div.ondrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    div.classList.remove('drag-over-target');
+    const srcPath = e.dataTransfer.getData('blockPath');
+    if (srcPath && srcPath !== pathStr) {
+      swapBlocks(srcPath, pathStr);
+    }
+  };
 
   if (block.type === 'action') {
     const act = allActions.find(a => a.plugin_id===block.plugin_id && a.action_id===block.action_id);
     const name = act?.name || block.action_id;
     div.innerHTML = `
       <div class="block-header">
+        <span class="block-drag-handle" title="Drag to reorder">⋮⋮</span>
         <span class="block-badge badge-action">▶</span>
         <span style="flex:1">${escHtml(name)}</span>
         <button class="block-move" onclick="moveBlock('${pathStr}',-1)" title="Move up">▲</button>
@@ -984,6 +1026,7 @@ function renderBlock(block, path) {
   } else if (block.type === 'style') {
     div.innerHTML = `
       <div class="block-header">
+        <span class="block-drag-handle" title="Drag to reorder">⋮⋮</span>
         <span class="block-badge badge-style">🎨 STYLE</span>
         <span style="font-size:.75rem;color:var(--muted)">appearance override</span>
         <button class="block-del" onclick="moveBlock('${pathEnc(path)}',-1)" title="Move up">↑</button>
@@ -1044,6 +1087,7 @@ function renderBlock(block, path) {
 
     div.innerHTML = `
       <div class="block-header">
+        <span class="block-drag-handle" title="Drag to reorder">⋮⋮</span>
         <span class="block-badge badge-if">IF</span>
         <span style="font-size:.75rem;flex:1">${summary}</span>
         <button class="block-del" onclick="moveBlock('${pathEnc(path)}',-1)" title="Move up">↑</button>
@@ -1165,6 +1209,32 @@ window.moveBlock = function(path, dir) {
   const swap = idx + dir;
   if (swap < 0 || swap >= list.length) return;
   [list[idx], list[swap]] = [list[swap], list[idx]];
+  renderProgram();
+};
+
+window.swapBlocks = function(srcPathStr, dstPathStr) {
+  const srcPath = _resolvePathArg(srcPathStr);
+  const dstPath = _resolvePathArg(dstPathStr);
+  
+  const srcParent = _getParentList(srcPath);
+  const dstParent = _getParentList(dstPath);
+  const srcIdx = srcPath[srcPath.length - 1];
+  const dstIdx = dstPath[dstPath.length - 1];
+  
+  if (!srcParent || !dstParent || srcIdx === undefined || dstIdx === undefined) return;
+  
+  // Extract the source block
+  const [movedBlock] = srcParent.splice(srcIdx, 1);
+  
+  // If moving within same list, adjust destination index if needed
+  let insertIdx = dstIdx;
+  if (srcParent === dstParent && srcIdx < dstIdx) {
+    insertIdx--; // Account for removal shifting indices
+  }
+  
+  // Insert at destination (after the destination block)
+  dstParent.splice(insertIdx + 1, 0, movedBlock);
+  
   renderProgram();
 };
 
