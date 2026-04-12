@@ -36,18 +36,37 @@ _OS = platform.system()   # "Windows" | "Linux" | "Darwin"
 # ═══════════════════════════════════════════════════════════════════════
 
 class _WindowsBackend:
-    """Uses ctypes + SendInput. Zero external dependencies on Windows."""
+    """Uses ctypes + SendInput. Zero external dependencies on Windows.
+
+    Scan-code mode (default: enabled)
+    ----------------------------------
+    Most games — especially simulations — use DirectInput or Raw Input, which
+    receive hardware-level scan codes rather than Windows Virtual Key codes.
+    Sending VK codes alone (wScan=0) is invisible to those games.
+
+    With scan-code mode:
+      • wScan  = MapVirtualKey(vk, MAPVK_VK_TO_VSC)  — hardware scan code
+      • wVk    = original VK code (kept for regular-app compat)
+      • flags |= KEYEVENTF_SCANCODE
+
+    This is the same strategy used by AutoHotkey, Logitech GHUB, and any other
+    macro tool that reliably works inside games.  It does not break standard
+    Windows apps because they can still read wVk from the event.
+    """
 
     def __init__(self):
         import ctypes
         import ctypes.wintypes
         self._ctypes = ctypes
 
-        INPUT_KEYBOARD = 1
-        KEYEVENTF_KEYUP = 0x0002
+        INPUT_KEYBOARD        = 1
+        KEYEVENTF_KEYUP       = 0x0002
         KEYEVENTF_EXTENDEDKEY = 0x0001
+        KEYEVENTF_SCANCODE    = 0x0008   # use hardware scan code — required for games
 
-        # Extended VK codes that need EXTENDEDKEY flag
+        # Extended VK codes that need EXTENDEDKEY flag.
+        # For scan-code mode these also need EXTENDEDKEY so the kernel
+        # correctly interprets the 0xE0-prefixed scan codes.
         self._EXTENDED = {
             0xA3, 0xA5,               # RCtrl, RAlt
             0x26, 0x28, 0x25, 0x27,   # arrows
@@ -89,20 +108,30 @@ class _WindowsBackend:
         class INPUT(ctypes.Structure):
             _fields_ = [("type", ctypes.wintypes.DWORD), ("_input", _INPUT_union)]
 
-        self._INPUT = INPUT
-        self._KEYBDINPUT = KEYBDINPUT
+        self._INPUT          = INPUT
+        self._KEYBDINPUT     = KEYBDINPUT
         self._INPUT_KEYBOARD = INPUT_KEYBOARD
-        self._KEYEVENTF_KEYUP = KEYEVENTF_KEYUP
+        self._KEYEVENTF_KEYUP       = KEYEVENTF_KEYUP
         self._KEYEVENTF_EXTENDEDKEY = KEYEVENTF_EXTENDEDKEY
-        self._send = ctypes.windll.user32.SendInput
+        self._KEYEVENTF_SCANCODE    = KEYEVENTF_SCANCODE
+        self._send           = ctypes.windll.user32.SendInput
+        # MapVirtualKeyW — translates a VK code to a hardware scan code.
+        # MAPVK_VK_TO_VSC = 0
+        self._map_vk = ctypes.windll.user32.MapVirtualKeyW
 
     def _make_input(self, vk: int, key_up: bool) -> object:
-        flags = 0
+        flags = self._KEYEVENTF_SCANCODE   # always send scan code — required for games
         if vk in self._EXTENDED:
             flags |= self._KEYEVENTF_EXTENDEDKEY
         if key_up:
             flags |= self._KEYEVENTF_KEYUP
-        ki = self._KEYBDINPUT(wVk=vk, wScan=0, dwFlags=flags, time=0,
+
+        # Translate VK code → hardware scan code (MAPVK_VK_TO_VSC = 0).
+        # scan=0 is acceptable as a fallback — Windows will still fire the
+        # event using wVk, but game engines relying on scan codes won't see it.
+        scan = self._map_vk(vk, 0) & 0xFF
+
+        ki = self._KEYBDINPUT(wVk=vk, wScan=scan, dwFlags=flags, time=0,
                                dwExtraInfo=None)
         inp = self._INPUT(type=self._INPUT_KEYBOARD)
         inp._input.ki = ki
