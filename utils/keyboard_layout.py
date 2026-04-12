@@ -2,15 +2,25 @@
 keyboard_layout.py — Detect and manage keyboard layout configuration.
 
 Provides functions to:
-  1. Detect the current Windows keyboard layout
+  1. Detect the current keyboard layout (Windows, Linux, macOS)
   2. Get the correct character mappings for the active layout
   3. Map characters to key combinations needed to produce them
+
+Detection strategy by platform
+--------------------------------
+Windows : GetKeyboardLayout() via ctypes — exact, zero dependencies.
+Linux   : setxkbmap -query (X11, most reliable) → LANG/LANGUAGE env var fallback.
+macOS   : ``defaults read com.apple.HIToolbox`` → locale fallback.
+Unknown : Falls back to QWERTY silently.
 """
-import ctypes
 import logging
+import platform
+import subprocess
 from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger("utils.keyboard_layout")
+
+_OS = platform.system()   # "Windows" | "Linux" | "Darwin"
 
 
 # Character mappings for different layouts
@@ -182,6 +192,9 @@ CHARACTER_MAPPINGS = {
         # Key on the left of W
         "<": ("oem_102", False),            # 1st left of W: IntlBackslash key
         ">": ("oem_102", True),             # Shift + 1st left of W: IntlBackslash
+        # Rightmost key before Right-Shift (VK_OEM_8)
+        "!": ("oem_8", False),              # oem_8 unshifted = exclamation mark
+        "§": ("oem_8", True),               # oem_8 shifted   = section sign
         # More symbol keys ?
     },
     "QWERTZ": {
@@ -231,46 +244,159 @@ CHARACTER_MAPPINGS = {
 
 
 
+def _detect_windows_layout() -> str:
+    """
+    Detect keyboard layout on Windows using GetKeyboardLayout().
+
+    Language code reference (low word of the HKL handle):
+      0x0409 = English US              → QWERTY
+      0x0809 = English UK              → QWERTY
+      0x0C09 = English AU              → QWERTY
+      0x1009 = English CA              → QWERTY
+      0x1409 = English NZ              → QWERTY
+      0x040C = French (France)         → AZERTY
+      0x080C = French (Belgium)        → AZERTY
+      0x0C0C = French (Canada)         → QWERTY  ← NOT AZERTY
+      0x140C = French (Luxembourg)     → AZERTY
+      0x180C = French (Monaco)         → AZERTY
+      0x0407 = German (Germany)        → QWERTZ
+      0x0807 = German (Switzerland)    → QWERTZ
+      0x0C07 = German (Austria)        → QWERTZ
+      0x0410 = Italian                 → QWERTY (Italian layout is QWERTY-based)
+    """
+    import ctypes
+    user32 = ctypes.windll.user32
+    hwnd = user32.GetForegroundWindow()
+    thread_id = user32.GetWindowThreadProcessId(hwnd, None)
+    layout_id = user32.GetKeyboardLayout(thread_id)
+    lang_code = layout_id & 0xFFFF
+
+    # AZERTY: French France, Belgium, Luxembourg, Monaco
+    if lang_code in (0x040C, 0x080C, 0x140C, 0x180C):
+        return "AZERTY"
+    # QWERTZ: German-speaking regions
+    if lang_code in (0x0407, 0x0807, 0x0C07):
+        return "QWERTZ"
+    # Everything else defaults to QWERTY (includes fr-CA 0x0C0C, English variants, Italian…)
+    logger.debug("Windows layout code 0x%04X → QWERTY (default)", lang_code)
+    return "QWERTY"
+
+
+def _detect_linux_layout() -> str:
+    """
+    Detect keyboard layout on Linux.
+
+    Tries in order:
+      1. setxkbmap -query  (X11 / XWayland — most reliable)
+      2. LANG / LANGUAGE environment variables
+      3. locale.getlocale()
+    Falls back to QWERTY if nothing conclusive is found.
+    """
+    import os
+    import locale as _locale
+
+    # ── 1. setxkbmap ─────────────────────────────────────────────────
+    try:
+        result = subprocess.run(
+            ["setxkbmap", "-query"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if line.startswith("layout:"):
+                    code = line.split(":", 1)[-1].strip().split(",")[0].lower()
+                    if code in ("fr", "be"):
+                        return "AZERTY"
+                    if code in ("de", "at", "ch"):
+                        return "QWERTZ"
+                    return "QWERTY"
+    except Exception:
+        pass
+
+    # ── 2. LANG / LANGUAGE env vars ───────────────────────────────────
+    for env_var in ("LANG", "LANGUAGE", "LC_ALL", "LC_CTYPE"):
+        lang = os.environ.get(env_var, "").upper()
+        if any(tag in lang for tag in ("FR_FR", "FR_BE", "FR_LU", "FR_MC")):
+            return "AZERTY"
+        if any(tag in lang for tag in ("DE_DE", "DE_AT", "DE_LI")):
+            return "QWERTZ"
+        # fr_CA is NOT AZERTY — intentionally falls through to QWERTY
+
+    # ── 3. Python locale ─────────────────────────────────────────────
+    try:
+        loc = (_locale.getlocale()[0] or "").upper()
+        if any(tag in loc for tag in ("FR_FR", "FR_BE", "FR_LU", "FR_MC")):
+            return "AZERTY"
+        if any(tag in loc for tag in ("DE_DE", "DE_AT", "DE_LI")):
+            return "QWERTZ"
+    except Exception:
+        pass
+
+    return "QWERTY"
+
+
+def _detect_macos_layout() -> str:
+    """
+    Detect keyboard layout on macOS.
+
+    Tries in order:
+      1. ``defaults read com.apple.HIToolbox AppleCurrentKeyboardLayoutInputSourceID``
+      2. Locale fallback (same logic as Linux).
+    Falls back to QWERTY.
+    """
+    import os
+
+    # ── 1. defaults read ─────────────────────────────────────────────
+    try:
+        result = subprocess.run(
+            [
+                "defaults", "read",
+                "com.apple.HIToolbox",
+                "AppleCurrentKeyboardLayoutInputSourceID",
+            ],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode == 0:
+            src = result.stdout.strip().upper()
+            # Examples: "com.apple.keylayout.French", "com.apple.keylayout.German"
+            if "FRENCH" in src or ".FR" in src:
+                return "AZERTY"
+            if "GERMAN" in src or ".DE" in src or ".AT" in src:
+                return "QWERTZ"
+            return "QWERTY"
+    except Exception:
+        pass
+
+    # ── 2. Locale fallback ────────────────────────────────────────────
+    for env_var in ("LANG", "LC_ALL", "LC_CTYPE"):
+        lang = os.environ.get(env_var, "").upper()
+        if any(tag in lang for tag in ("FR_FR", "FR_BE")):
+            return "AZERTY"
+        if any(tag in lang for tag in ("DE_DE", "DE_AT")):
+            return "QWERTZ"
+
+    return "QWERTY"
+
+
 def detect_keyboard_layout() -> str:
     """
-    Detect the current Windows keyboard layout.
-    Returns: "QWERTY", "AZERTY", "QWERTZ", or "UNKNOWN"
+    Detect the active keyboard layout on any supported platform.
+
+    Returns one of: ``"QWERTY"``, ``"AZERTY"``, ``"QWERTZ"``, ``"UNKNOWN"``.
+    ``"UNKNOWN"`` is only returned if detection itself fails unexpectedly;
+    callers should treat it the same as ``"QWERTY"``.
     """
     try:
-        # Get the active keyboard layout from Windows
-        user32 = ctypes.windll.user32
-        
-        # Get the active window keyboard layout
-        hwnd = user32.GetForegroundWindow()
-        thread_id = user32.GetWindowThreadProcessId(hwnd, None)
-        layout_id = user32.GetKeyboardLayout(thread_id)
-        
-        # Extract the language code (low word)
-        lang_code = layout_id & 0xFFFF
-        
-        # Map language codes to layout names
-        # Common keyboard layout IDs:
-        # 0x0409 = English (US) - QWERTY
-        # 0x040C = French - AZERTY
-        # 0x080C = French (Belgian) - AZERTY
-        # 0x140C = French (Canadian) - QWERTY
-        # 0x0407 = German - QWERTZ
-        
-        if lang_code == 0x0409:  # English US
-            return "QWERTY"
-        elif lang_code in [0x040C, 0x080C, 0x0C0C]:  # French layouts
-            return "AZERTY"
-        elif lang_code in [0x0407, 0x0807, 0x0C07]:  # German/Austrian/Swiss German
-            return "QWERTZ"
-        elif lang_code == 0x0410:  # Italian
-            return "QWERTY"
-        elif lang_code in [0x0809, 0x0C09, 0x1009, 0x1409]:  # English (UK, AU, CA, etc)
-            return "QWERTY"
-        else:
-            logger.info(f"Unknown keyboard layout code: 0x{lang_code:04X}")
-            return "UNKNOWN"
-    except Exception as e:
-        logger.error(f"Failed to detect keyboard layout: {e}")
+        if _OS == "Windows":
+            return _detect_windows_layout()
+        if _OS == "Linux":
+            return _detect_linux_layout()
+        if _OS == "Darwin":
+            return _detect_macos_layout()
+        logger.debug("Unsupported platform '%s' — defaulting to QWERTY", _OS)
+        return "QWERTY"
+    except Exception as exc:
+        logger.error("Failed to detect keyboard layout: %s", exc)
         return "UNKNOWN"
 
 

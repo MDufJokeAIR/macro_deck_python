@@ -154,7 +154,12 @@ KEY_MAP: Dict[str, Dict] = {
     "oem_5":        {"win": 0xDC, "linux": "backslash",   "mac": 42,  "label": r"\ |  (OEM_5)"},
     "oem_6":        {"win": 0xDD, "linux": "bracketright","mac": 30,  "label": "] }  (OEM_6)"},
     "oem_7":        {"win": 0xDE, "linux": "apostrophe",  "mac": 39,  "label": "' \"  (OEM_7)"},
-    "oem_8":        {"win": 0xDF, "linux": "endonym",     "mac": -1,  "label": "OEM_8"},
+    # oem_8 (VK 0xDF) is the key immediately left of Right-Shift on ISO keyboards.
+    # On French AZERTY it produces ! (unshifted) and § (shifted).
+    # Linux keysym "exclam" lets xdotool/Xlib resolve the correct physical key
+    # on any X11 layout; "endonym" (the old value) is not a real keysym and
+    # caused every oem_8 press to be silently dropped on Linux.
+    "oem_8":        {"win": 0xDF, "linux": "exclam",      "mac": -1,  "label": "! §  (OEM_8)"},
     "oem_plus":     {"win": 0xBB, "linux": "equal",       "mac": 24,  "label": "= +  (OEM_Plus)"},
     "oem_minus":    {"win": 0xBD, "linux": "minus",       "mac": 27,  "label": "- _  (OEM_Minus)"},
     "oem_comma":    {"win": 0xBC, "linux": "comma",       "mac": 43,  "label": ", <  (OEM_Comma)"},

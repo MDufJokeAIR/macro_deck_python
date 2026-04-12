@@ -657,14 +657,29 @@ def create_app() -> "web.Application":
     app.router.add_get("/", serve_pad)      # root → pad client
     app.router.add_get("/admin", serve_index)
     app.router.add_get("/admin/{tail:.*}", serve_index)
-    app.router.add_get("/{tail:.*}", serve_pad)  # everything else → pad
+    # Return 204 No Content for favicon requests so browsers stop getting
+    # a full HTML page (20+ KB) as an "icon".
+    app.router.add_get("/favicon.ico", lambda r: web.Response(status=204))
+    # Unknown paths that look like static assets return 404 so the browser
+    # knows they don't exist.  Paths that have no extension are served as the
+    # pad client (keeps deep-link / PWA navigation working without a full SPA
+    # router on the server side).
+    async def _fallback(request: web.Request) -> web.Response:
+        path = request.path.rstrip("/")
+        # Anything with a file extension is an asset request → 404
+        if "." in path.rsplit("/", 1)[-1]:
+            raise web.HTTPNotFound()
+        # Everything else → pad client
+        return web.Response(text=get_pad_html(), content_type="text/html")
+    app.router.add_get("/{tail:.*}", _fallback)
     return app
 
 
-def _json(data: Any) -> web.Response:
+def _json(data: Any, status: int = 200) -> web.Response:
     return web.Response(
         text=json.dumps(data, default=str),
         content_type="application/json",
+        status=status,
     )
 
 

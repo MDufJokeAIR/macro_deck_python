@@ -84,6 +84,11 @@ def _add_server_args(p: argparse.ArgumentParser) -> None:
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
 
 
+async def _async_wait_for_stop(stop_event: asyncio.Event) -> None:
+    """Coroutine that completes when the stop event is set (e.g. tray quit)."""
+    await stop_event.wait()
+
+
 # ── Server startup ─────────────────────────────────────────────────────
 
 async def _main_async(args: argparse.Namespace) -> None:
@@ -217,25 +222,45 @@ async def _main_async(args: argparse.Namespace) -> None:
     MacroDeckLogger.info(None, f"  ⚠ On the Raspberry Pi browser open: ")
     MacroDeckLogger.info(None, f"    http://{display_ip}:{config_port}  (pad only, editor blocked)")
 
-    # Run servers and wait for stop signal
-    # Use gather to monitor both the WebSocket task and stop event
-    async def _stop_waiter():
-        await _stop.wait()
-        raise KeyboardInterrupt("Stop signal received")
+    # Run servers: wait until EITHER the WebSocket task dies OR a stop signal
+    # arrives — whichever comes first.
+    #
+    # asyncio.gather(..., return_exceptions=True) does NOT cancel siblings when
+    # one task finishes, so a crashed ws_task would leave _stop_waiter running
+    # forever and hang the process.  asyncio.wait(..., FIRST_COMPLETED) avoids
+    # this: as soon as any task completes we know something significant happened.
+    _stop_task = asyncio.create_task(_async_wait_for_stop(_stop))
 
     try:
-        results = await asyncio.gather(ws_task, _stop_waiter(), return_exceptions=True)
-        # Check for exceptions
-        for i, result in enumerate(results):
-            if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
-                if not isinstance(result, KeyboardInterrupt):
-                    MacroDeckLogger.error(None, f"Task {i} failed: {result}")
-                    import traceback
-                    traceback.print_exc()
-    except asyncio.CancelledError:
-        pass
-    except KeyboardInterrupt:
-        pass
+        done, pending = await asyncio.wait(
+            [ws_task, _stop_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Cancel whichever task is still running
+        for t in pending:
+            t.cancel()
+            try:
+                await t
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        # Surface any unexpected exceptions from the WebSocket task
+        for t in done:
+            if not t.cancelled() and t.exception() is not None:
+                exc = t.exception()
+                if not isinstance(exc, (KeyboardInterrupt, asyncio.CancelledError)):
+                    MacroDeckLogger.error(None, f"WebSocket server crashed: {exc}")
+
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        ws_task.cancel()
+        _stop_task.cancel()
+        for t in [ws_task, _stop_task]:
+            try:
+                await t
+            except (asyncio.CancelledError, Exception):
+                pass
+
     finally:
         MacroDeckLogger.info(None, "Macro Deck shutting down…")
         if hot_reload_watcher:
@@ -250,6 +275,13 @@ async def _main_async(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
+
+    # On Windows, Python 3.8+ defaults to IocpProactor which has known
+    # incompatibilities with the websockets library (connections may be
+    # silently dropped or never accepted).  Switching to SelectorEventLoop
+    # fixes this with no downside for our workload.
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     if args.command == "new-plugin":
         from macro_deck_python.cli.scaffold import scaffold
