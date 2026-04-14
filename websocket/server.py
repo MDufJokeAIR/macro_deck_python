@@ -278,36 +278,64 @@ class MacroDeckServer:
             row, col = pos.split("_")
             base = {
                 "button_id":   btn.button_id,
-                "button_type": getattr(btn, "button_type", "button"),
                 "position":    pos,
                 "row":         int(row),
                 "col":         int(col),
             }
-            btype = getattr(btn, "button_type", "button")
-            if btype == "slider":
-                sc = getattr(btn, "slider_config", {})
-                base.update({
-                    "slider_config": sc,
-                    "label": _resolve_label(sc.get("label", "")),
-                    "label_color":   btn.label_color,
-                })
-            elif btype == "slider_occupied":
-                base.update({"slider_config": getattr(btn, "slider_config", {})})
-            else:
-                # Resolve appearance through conditions
+            
+            # Skip buttons that are occupied by a new-style slider
+            if getattr(btn, "slider_parent_position", None):
+                return None  # Will be filtered out below
+            
+            # Check if this is a slider (new system or legacy)
+            is_slider = getattr(btn, "is_slider", False)
+            old_button_type = getattr(btn, "button_type", "button")
+            
+            if is_slider:
+                # New slider system
                 app = btn.resolve_appearance(VariableManager.get_value)
                 base.update({
-                    "label":            _resolve_label(app["label"]),
-                    "label_color":      app["label_color"],
-                    "label_font_size":  btn.label_font_size,
-                    "icon":             app["icon"],
+                    "is_slider": True,
+                    "slider_size": getattr(btn, "slider_size", 1),
+                    "slider_orientation": getattr(btn, "slider_orientation", "vertical"),
+                    "slider_variable": getattr(btn, "slider_variable", ""),
+                    "label": _resolve_label(app["label"]),
+                    "label_color": app["label_color"],
+                    "label_font_size": btn.label_font_size,
+                    "icon": app["icon"],
                     "background_color": app["background_color"],
-                    "state":            app["state"],
-                    "has_actions":      len(btn.program) > 0,
+                    "has_actions": len(btn.program) > 0,
+                })
+            elif old_button_type == "slider":
+                # Legacy slider system (for backward compat)
+                sc = getattr(btn, "slider_config", {})
+                base.update({
+                    "button_type": "slider",
+                    "slider_config": sc,
+                    "label": _resolve_label(sc.get("label", "")),
+                    "label_color": btn.label_color,
+                })
+            elif old_button_type == "slider_occupied":
+                # Legacy slider occupied cell
+                base.update({
+                    "button_type": "slider_occupied",
+                    "slider_config": getattr(btn, "slider_config", {}),
+                })
+            else:
+                # Regular button
+                app = btn.resolve_appearance(VariableManager.get_value)
+                base.update({
+                    "label": _resolve_label(app["label"]),
+                    "label_color": app["label_color"],
+                    "label_font_size": btn.label_font_size,
+                    "icon": app["icon"],
+                    "background_color": app["background_color"],
+                    "state": app["state"],
+                    "has_actions": len(btn.program) > 0,
                 })
             return base
 
-        buttons_payload = [_button_payload(pos, btn) for pos, btn in folder.buttons.items()]
+        buttons_payload = [p for p in (_button_payload(pos, btn) for pos, btn in folder.buttons.items()) if p]
 
         sub_folders = [
             {"folder_id": sf.folder_id, "name": sf.name}

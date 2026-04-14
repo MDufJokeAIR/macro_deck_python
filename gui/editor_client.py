@@ -369,6 +369,17 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
         </div>
         <div id="auto-var-hint" style="font-size:.7rem;color:var(--accent);margin-top:2px;display:none"></div>
       </div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;
+                       color:var(--fg);cursor:pointer;user-select:none">
+          <input type="checkbox" id="f-is-slider" onchange="onIsSliderChange()"
+                 style="width:14px;height:14px;cursor:pointer">
+          Convert to slider (enable slider tab)
+        </label>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+          Enable this to use the button as a slider extending over multiple cells.
+        </div>
+      </div>
       <button class="btn btn-primary" onclick="saveButton()">Save button</button>
       <button class="btn btn-sm" style="background:var(--danger);color:#fff;margin-top:4px"
               onclick="deleteCurrentButton()">🗑 Delete button</button>
@@ -385,55 +396,115 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
 
     <!-- Slider tab -->
     <div class="tab-panel" id="tab-slider">
-      <div class="slider-viz">
-        <h3>Slider preview</h3>
-        <div class="slider-preview">
-          <div class="slider-track" id="sv-track" style="height:120px">
-            <div class="slider-thumb"></div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;
+                       color:var(--fg);cursor:pointer;user-select:none">
+          <input type="checkbox" id="f-enable-slider" onchange="onEnableSliderChange()"
+                 style="width:14px;height:14px;cursor:pointer">
+          Enable slider mode
+        </label>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+          Convert this button into a slider that extends over multiple cells.
+        </div>
+      </div>
+
+      <!-- New Slider Settings -->
+      <div id="slider-new-settings" style="display:none;padding:12px;
+                                           background:var(--bg-alt);border-radius:4px;
+                                           margin:8px 0;border-left:3px solid var(--accent)">
+        <div class="field">
+          <label>Orientation</label>
+          <select id="f-slider-orientation" onchange="onSliderOrientationChange()" style="width:100%">
+            <option value="vertical">Vertical (Y-axis) — extends downward</option>
+            <option value="horizontal">Horizontal (X-axis) — extends rightward</option>
+          </select>
+        </div>
+        
+        <div class="field">
+          <label>Size (cells to extend)</label>
+          <div style="display:flex;gap:4px;align-items:center">
+            <input type="number" id="f-slider-size" min="1" max="16" value="1" 
+                   onchange="onSliderSizeChange()" style="flex:1">
+            <span style="font-size:.75rem;color:var(--muted)">cell(s)</span>
           </div>
-          <div style="font-size:.75rem;color:var(--muted)">
-            <div id="sv-max">100</div>
-            <div style="margin:8px 0;color:var(--accent)" id="sv-cur">50</div>
-            <div id="sv-min">0</div>
+          <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+            This slider will occupy <span id="slider-cells-affected">1</span> cells.
+            <span id="slider-override-warning" style="color:var(--danger);display:none">
+              <br>⚠️ Will override <span id="override-count">0</span> button(s)
+            </span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Bind variable (0-100%)</label>
+          <div style="display:flex;gap:4px;align-items:center">
+            <select id="f-slider-variable" onchange="debounceSave()" style="flex:1">
+              <option value="">— create new —</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" title="Create or rename slider variable"
+                    onclick="editSliderVariable()" style="flex-shrink:0">✏</button>
+          </div>
+          <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+            The slider will set this variable to 0-100.
           </div>
         </div>
       </div>
-      <div class="row">
-        <div class="field">
-          <label>Min value</label>
-          <input type="number" id="sl-min" value="0" oninput="updateSliderPreview()">
+
+      <!-- Legacy Slider Settings (hidden by default) -->
+      <div id="slider-legacy-settings" style="display:none;padding:12px;
+                                              background:var(--bg-alt);border-radius:4px;
+                                              margin:8px 0;border-left:3px solid var(--muted)">
+        <h4 style="margin:0 0 8px 0;font-size:.9rem">Legacy Slider Settings</h4>
+        <div class="slider-viz">
+          <div class="slider-preview">
+            <div class="slider-track" id="sv-track" style="height:80px">
+              <div class="slider-thumb"></div>
+            </div>
+            <div style="font-size:.75rem;color:var(--muted);margin-top:4px">
+              <div id="sv-max">100</div>
+              <div style="margin:4px 0;color:var(--accent)" id="sv-cur">50</div>
+              <div id="sv-min">0</div>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Min</label>
+            <input type="number" id="sl-min" value="0" oninput="updateSliderPreview()">
+          </div>
+          <div class="field">
+            <label>Max</label>
+            <input type="number" id="sl-max" value="100" oninput="updateSliderPreview()">
+          </div>
+          <div class="field">
+            <label>Step</label>
+            <input type="number" id="sl-step" value="1" min="0" step="any">
+          </div>
         </div>
         <div class="field">
-          <label>Max value</label>
-          <input type="number" id="sl-max" value="100" oninput="updateSliderPreview()">
+          <label>Label</label>
+          <input type="text" id="sl-label" placeholder="Volume">
         </div>
         <div class="field">
-          <label>Step</label>
-          <input type="number" id="sl-step" value="1" min="0" step="any">
+          <label>Colour</label>
+          <div class="color-row">
+            <input type="color" id="sl-color" value="#7c83fd"
+                   oninput="syncColor('sl-color','sl-color-txt')">
+            <input type="text" class="ctrl" id="sl-color-txt" value="#7c83fd"
+                   oninput="syncColor('sl-color-txt','sl-color')">
+          </div>
         </div>
-      </div>
-      <div class="field">
-        <label>Label</label>
-        <input type="text" id="sl-label" placeholder="Volume">
-      </div>
-      <div class="field">
-        <label>Track colour</label>
-        <div class="color-row">
-          <input type="color" id="sl-color" value="#7c83fd"
-                 oninput="syncColor('sl-color','sl-color-txt')">
-          <input type="text" class="ctrl" id="sl-color-txt" value="#7c83fd"
-                 oninput="syncColor('sl-color-txt','sl-color')">
+        <div class="field">
+          <label>Height (rows)</label>
+          <input type="number" id="sl-size" min="1" max="10" value="3">
         </div>
+        <h3 style="margin:12px 0 8px 0; font-size:.9rem">Outputs</h3>
+        <div id="slider-outputs" style="display:flex;flex-direction:column;gap:6px"></div>
+        <button class="btn btn-ghost btn-sm" onclick="addSliderOutput()">+ Add output</button>
       </div>
-      <div class="field">
-        <label>Height (rows)</label>
-        <input type="number" id="sl-size" min="1" max="10" value="3">
-      </div>
-      <h3>Outputs</h3>
-      <div id="slider-outputs" style="display:flex;flex-direction:column;gap:6px"></div>
-      <button class="btn btn-ghost btn-sm" onclick="addSliderOutput()">+ Add output</button>
-      <button class="btn btn-primary" style="margin-top:6px"
-              onclick="saveSlider()">Save slider</button>
+
+      <button class="btn btn-primary" style="margin-top:8px"
+              onclick="saveButton()">Save button</button>
     </div>
   </div><!-- /inspector -->
 </div><!-- /workspace -->
@@ -503,7 +574,7 @@ async function boot() {
 
   profiles      = pr.profiles || [];
   activeProfileId = pr.active_id || (profiles[0]?.id);
-  allActions    = acts || [];
+  allActions    = (acts || []).filter(a => a.plugin_id !== 'builtin.analog_slider');
   allVariables  = vars || [];
 
   // Load key groups from keyboard_macro key_map
@@ -656,10 +727,24 @@ function makeCell(pos, btn) {
     el.classList.add('empty');
     el.innerHTML = `<span class="cell-add-icon">+</span>`;
     el.onclick = () => onCellClick(pos, null);
+  } else if (btn.slider_parent_position) {
+    // New-style slider occupied cell
+    el.classList.add('slider-occ');
+    el.innerHTML = `<span style="font-size:.65rem;color:var(--accent)44">⎸ extends</span>`;
   } else if (btn.button_type === 'slider_occupied') {
+    // Legacy slider occupied cell
     el.classList.add('slider-occ');
     el.innerHTML = `<span style="font-size:.65rem;color:var(--accent)44">⎸ slider</span>`;
+  } else if (btn.is_slider) {
+    // New-style slider button
+    el.classList.add('slider-head');
+    el.innerHTML = `
+      <span style="font-size:.9rem">⎸</span>
+      <span class="cell-label" style="color:var(--accent)">${btn.label||'Slider'}</span>
+      <span class="cell-type-badge">slider×${btn.slider_size || 1}</span>`;
+    el.onclick = () => onCellClick(pos, btn);
   } else if (btn.button_type === 'slider') {
+    // Legacy slider button
     el.classList.add('slider-head');
     const cfg = btn.slider_config || {};
     el.innerHTML = `
@@ -695,7 +780,7 @@ function makeCell(pos, btn) {
   }
 
   // Drag-and-drop (normal buttons only)
-  if (btn && btn.button_type !== 'slider_occupied') {
+  if (btn && btn.button_type !== 'slider_occupied' && !btn.is_slider && !btn.slider_parent_position) {
     el.draggable = true;
     el.ondragstart = e => { e.dataTransfer.setData('srcPos', pos); el.classList.add('drag-src'); };
     el.ondragend   = () => el.classList.remove('drag-src');
@@ -735,20 +820,23 @@ async function onCellClick(pos, btn) {
       icon: null,
       state_binding: null,
       program: [],
-      button_type: 'button',
-      slider_config: {},
+      is_slider: false,
+      slider_size: 1,
+      slider_orientation: 'vertical',
+      slider_variable: '',
     };
     openInspector('New Button', false);
-  } else if (btn.button_type === 'slider') {
-    editSlider = btn.slider_config ? { ...btn.slider_config } : {};
+  } else if (btn.is_slider || btn.button_type === 'slider') {
+    // Slider button (new or legacy) — open in Slider tab
     editBtn = { ...btn };
-    openInspector('Slider', true);
-    populateSliderPanel(editSlider);
+    openInspector('Button', true, 'slider');  // Open Slider tab
   } else {
+    // Regular button
     editBtn = JSON.parse(JSON.stringify(btn));
     openInspector('Button', false);
   }
   populateStylePanel(editBtn);
+  await populateSliderPanel(editBtn);
   populateActionsPanel(editBtn);
   await populateVariableSelect();
 }
@@ -756,13 +844,18 @@ async function onCellClick(pos, btn) {
 // ═══════════════════════════════════════════════════════════════════
 // Inspector
 // ═══════════════════════════════════════════════════════════════════
-function openInspector(title, isSlider) {
+function openInspector(title, isSlider, tabName) {
   document.getElementById('inspector').classList.remove('hidden');
   document.getElementById('insp-title').textContent = title;
   const slTab = document.getElementById('tab-slider-btn');
   slTab.style.display = isSlider ? '' : 'none';
-  if (isSlider) showTab('slider');
-  else showTab('style');
+  if (tabName) {
+    showTab(tabName);
+  } else if (isSlider) {
+    showTab('slider');
+  } else {
+    showTab('style');
+  }
   renderGrid();
 }
 
@@ -802,6 +895,45 @@ function populateStylePanel(btn) {
     preview.style.display = '';
   } else {
     preview.style.display = 'none';
+  }
+}
+
+async function populateSliderPanel(btn) {
+  // Determine if this is a new or legacy slider
+  const isNewSlider = btn.is_slider || false;
+  const isLegacySlider = btn.button_type === 'slider' || false;
+  
+  document.getElementById('f-enable-slider').checked = isNewSlider || isLegacySlider;
+  
+  if (isNewSlider) {
+    // Show new slider settings
+    document.getElementById('slider-new-settings').style.display = 'block';
+    document.getElementById('slider-legacy-settings').style.display = 'none';
+    
+    document.getElementById('f-slider-size').value = btn.slider_size || 1;
+    document.getElementById('f-slider-orientation').value = btn.slider_orientation || 'vertical';
+    document.getElementById('f-slider-variable').value = btn.slider_variable || '';
+    await updateSliderVariableList();
+    onSliderSizeChange();
+  } else if (isLegacySlider) {
+    // Show legacy slider settings
+    document.getElementById('slider-new-settings').style.display = 'none';
+    document.getElementById('slider-legacy-settings').style.display = 'block';
+    
+    const cfg = btn.slider_config || {};
+    document.getElementById('sl-min').value = cfg.min_value || 0;
+    document.getElementById('sl-max').value = cfg.max_value || 100;
+    document.getElementById('sl-step').value = cfg.step || 1;
+    document.getElementById('sl-label').value = cfg.label || '';
+    document.getElementById('sl-color').value = cfg.color || '#7c83fd';
+    document.getElementById('sl-color-txt').value = cfg.color || '#7c83fd';
+    document.getElementById('sl-size').value = cfg.size || 3;
+    updateSliderPreview();
+    if (cfg.outputs) populateLegacyOutputs(cfg.outputs);
+  } else {
+    // No slider mode
+    document.getElementById('slider-new-settings').style.display = 'none';
+    document.getElementById('slider-legacy-settings').style.display = 'none';
   }
 }
 
@@ -927,12 +1059,161 @@ function collectStyleFromPanel() {
   editBtn.state_binding    = document.getElementById('f-state-bind').value || null;
 }
 
+function collectSliderFromPanel() {
+  if (!editBtn) return;
+  const isNewSlider = document.getElementById('f-enable-slider').checked;
+  
+  if (isNewSlider) {
+    // New slider settings
+    editBtn.is_slider = true;
+    editBtn.slider_size = parseInt(document.getElementById('f-slider-size').value) || 1;
+    editBtn.slider_orientation = document.getElementById('f-slider-orientation').value || 'vertical';
+    editBtn.slider_variable = document.getElementById('f-slider-variable').value || '';
+  } else {
+    // Disable slider
+    editBtn.is_slider = false;
+    editBtn.slider_size = 1;
+    editBtn.slider_orientation = 'vertical';
+    editBtn.slider_variable = '';
+  }
+}
+
 function onFontAutoChange() {
   const isAuto = document.getElementById('f-font-auto').checked;
   document.getElementById('f-font').style.display          = isAuto ? 'none' : '';
   document.getElementById('f-font-px-label').style.display = isAuto ? 'none' : '';
   document.getElementById('f-font-hint').style.display     = isAuto ? '' : 'none';
   debounceSave();
+}
+
+function onIsSliderChange() {
+  const isSlider = document.getElementById('f-is-slider').checked;
+  editBtn.is_slider = isSlider;
+  document.getElementById('tab-slider-btn').style.display = isSlider ? '' : 'none';
+  debounceSave();
+}
+
+function onEnableSliderChange() {
+  const isEnabled = document.getElementById('f-enable-slider').checked;
+  document.getElementById('slider-new-settings').style.display = isEnabled ? 'block' : 'none';
+  if (isEnabled) {
+    // Populate variable list when slider is enabled
+    updateSliderVariableList();
+    onSliderSizeChange();  // Show warning if applicable
+  }
+  debounceSave();
+}
+
+async function updateSliderVariableList() {
+  // Refresh variable list from server
+  try {
+    allVariables = await GET('/api/variables') || allVariables;
+  } catch(e) {}
+  
+  // Populate the slider variable dropdown with existing variables
+  const select = document.getElementById('f-slider-variable');
+  const currentValue = select.value;
+  const options = [`<option value="">— create new —</option>`];
+  
+  // Add all variables from allVariables array
+  allVariables.forEach(v => {
+    options.push(`<option value="${v.name}">${v.name} (${v.type})</option>`);
+  });
+  select.innerHTML = options.join('');
+  select.value = currentValue;
+}
+
+function onSliderOrientationChange() {
+  onSliderSizeChange();  // Re-check warning when orientation changes
+  debounceSave();
+}
+
+function onSliderSizeChange() {
+  const size = parseInt(document.getElementById('f-slider-size').value) || 1;
+  if (!selectedPos) {
+    // Hide warning panel if no position selected
+    document.getElementById('slider-cells-affected').textContent = '1';
+    document.getElementById('slider-override-warning').style.display = 'none';
+    return;
+  }
+  
+  const [r, c] = selectedPos.split('_').map(Number);
+  const orientation = document.getElementById('f-slider-orientation').value;
+  
+  // Calculate which positions will be occupied
+  let occupiedCount = 0;
+  let overrideCount = 0;
+  
+  if (orientation === 'vertical') {
+    // Extend downward (Y+)
+    for (let i = 0; i < size; i++) {
+      occupiedCount++;
+      const pos = `${r + i}_${c}`;
+      // Count other buttons (skip the main button position itself)
+      if (i > 0) {
+        const btn = buttons[pos];
+        // Check if this cell has a button and it's not the current slider
+        if (btn && !btn.slider_parent_position && btn !== editBtn) {
+          overrideCount++;
+        }
+      }
+    }
+  } else {
+    // Extend rightward (X+)
+    for (let i = 0; i < size; i++) {
+      occupiedCount++;
+      const pos = `${r}_${c + i}`;
+      if (i > 0) {
+        const btn = buttons[pos];
+        if (btn && !btn.slider_parent_position && btn !== editBtn) {
+          overrideCount++;
+        }
+      }
+    }
+  }
+  
+  // Update display
+  document.getElementById('slider-cells-affected').textContent = occupiedCount;
+  const warningEl = document.getElementById('slider-override-warning');
+  const dangerEl = document.getElementById('override-count');
+  
+  if (overrideCount > 0) {
+    dangerEl.textContent = overrideCount;
+    warningEl.style.display = 'block';
+  } else {
+    warningEl.style.display = 'none';
+  }
+  
+  debounceSave();
+}
+
+async function editSliderVariable() {
+  const currentVar = document.getElementById('f-slider-variable').value || '';
+  const newVar = prompt('Variable name for slider (alphanumeric, no spaces):\nLeave empty to create new:', currentVar);
+  if (newVar !== null && newVar.trim()) {
+    const safe = newVar.trim().replace(/[^a-zA-Z0-9_]/g, '_');
+    
+    // If this is a new variable name (not in allVariables), create it
+    const exists = allVariables.some(v => v.name === safe);
+    if (!exists) {
+      try {
+        await POST('/api/variables', {
+          name: safe,
+          value: 50,
+          type: 'Float'
+        });
+        // Refresh variable list
+        await updateSliderVariableList();
+        toast(`✓ Created variable "${safe}"`);
+      } catch(e) {
+        toast('Failed to create variable: ' + (e?.message || 'unknown error'), true);
+        return;
+      }
+    }
+    
+    document.getElementById('f-slider-variable').value = safe;
+    debounceSave();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1583,6 +1864,13 @@ function updateSliderPreview() {
   document.querySelector('.slider-thumb').style.background = color;
 }
 
+function populateLegacyOutputs(outputs) {
+  // Initialize editSlider with the legacy slider's outputs for editing
+  if (!editSlider) editSlider = {};
+  editSlider.outputs = outputs || [];
+  renderSliderOutputs(editSlider.outputs);
+}
+
 function renderSliderOutputs(outputs) {
   const wrap = document.getElementById('slider-outputs');
   wrap.innerHTML = '';
@@ -1675,7 +1963,7 @@ window.editThresholds = function(i) {
   }
 };
 
-function collectSliderFromPanel() {
+function collectLegacySliderFromPanel() {
   if (!editSlider) editSlider = {};
   editSlider.min_value  = parseFloat(document.getElementById('sl-min').value)  || 0;
   editSlider.max_value  = parseFloat(document.getElementById('sl-max').value)  || 100;
@@ -1697,25 +1985,67 @@ function debounceSave() {
 async function saveButton() {
   if (!editBtn || !selectedPos) return;
   collectStyleFromPanel();
+  collectSliderFromPanel();  // Collect slider settings if enabled
 
   const payload = {
     ...editBtn,
     position: selectedPos,
-    button_type: 'button',
   };
   const fid = folderStack.length ? folderStack.at(-1).folder_id : null;
   if (fid) payload.folder_id = fid;
 
-  const r = await POST(`/api/profiles/${activeProfileId}/buttons`, payload);
-  if (r.button_id || r.position || !r.error) {
-    toast('Saved ✓');
-    await loadGrid();
-    // Re-select
-    const cell = document.querySelector(`[data-pos="${selectedPos}"]`);
-    cell?.classList.add('selected');
+  // If this is a slider, handle size extension
+  const isSlider = editBtn.is_slider || false;
+  const sliderSize = editBtn.slider_size || 1;
+  const orientation = editBtn.slider_orientation || 'vertical';
+  
+  if (isSlider && sliderSize > 1) {
+    // Calculate occupied positions
+    const [r, c] = selectedPos.split('_').map(Number);
+    const occupiedPositions = [];
+    
+    if (orientation === 'vertical') {
+      for (let i = 1; i < sliderSize; i++) {
+        occupiedPositions.push(`${r + i}_${c}`);
+      }
+    } else {
+      for (let i = 1; i < sliderSize; i++) {
+        occupiedPositions.push(`${r}_${c + i}`);
+      }
+    }
+    
+    // Save the main slider button
+    let r1 = await POST(`/api/profiles/${activeProfileId}/buttons`, payload);
+    if (!r1.button_id && !r1.position && r1.error) {
+      toast('Save failed: '+(r1.error||'unknown'), true);
+      return;
+    }
+    
+    // Now save occupied buttons
+    for (const pos of occupiedPositions) {
+      const occupiedBtn = {
+        position: pos,
+        label: '',
+        slider_parent_position: selectedPos,
+        button_type: 'button',
+      };
+      if (fid) occupiedBtn.folder_id = fid;
+      await POST(`/api/profiles/${activeProfileId}/buttons`, occupiedBtn);
+    }
   } else {
-    toast('Save failed: '+(r.error||'unknown'), true);
+    // Regular save (including single-cell sliders)
+    const r = await POST(`/api/profiles/${activeProfileId}/buttons`, payload);
+    if (!r.button_id && !r.position && r.error) {
+      toast('Save failed: '+(r.error||'unknown'), true);
+      return;
+    }
   }
+  
+  toast('Saved ✓');
+  await loadGrid();
+  // Re-select
+  const cell = document.querySelector(`[data-pos="${selectedPos}"]`);
+  cell?.classList.add('selected');
 }
 
 async function deleteCurrentButton() {
@@ -1932,12 +2262,38 @@ window.ctxDelete = async function() {
   if (!btn) return;
   if (!confirm(`Delete button at ${ctxPos}?`)) return;
   const fid = folderStack.length ? folderStack.at(-1).folder_id : null;
+  
   if (btn.button_type === 'slider') {
-    // Remove slider head + occupied
+    // Remove legacy slider head + occupied cells
     const size = (btn.slider_config?.size) || 1;
     const [r,c] = ctxPos.split('_').map(Number);
     for (let i = 0; i < size; i++) {
       await DEL(`/api/profiles/${activeProfileId}/buttons/${r+i}_${c}${fid?'?folder_id='+fid:''}`);
+    }
+  } else if (btn.is_slider) {
+    // Remove new slider head + occupied cells based on orientation and size
+    const size = btn.slider_size || 1;
+    const orientation = btn.slider_orientation || 'vertical';
+    const [r,c] = ctxPos.split('_').map(Number);
+    
+    // Delete the main slider button
+    await DEL(`/api/profiles/${activeProfileId}/buttons/${ctxPos}${fid?'?folder_id='+fid:''}`);
+    
+    // Delete occupied cells
+    if (size > 1) {
+      if (orientation === 'vertical') {
+        // Extends downward
+        for (let i = 1; i < size; i++) {
+          const pos = `${r + i}_${c}`;
+          await DEL(`/api/profiles/${activeProfileId}/buttons/${pos}${fid?'?folder_id='+fid:''}`);
+        }
+      } else {
+        // Extends rightward
+        for (let i = 1; i < size; i++) {
+          const pos = `${r}_${c + i}`;
+          await DEL(`/api/profiles/${activeProfileId}/buttons/${pos}${fid?'?folder_id='+fid:''}`);
+        }
+      }
     }
   } else {
     await DEL(`/api/profiles/${activeProfileId}/buttons/${ctxPos}${fid?'?folder_id='+fid:''}`);

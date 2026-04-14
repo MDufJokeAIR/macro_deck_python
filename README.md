@@ -318,9 +318,44 @@ Edit `main.py` and save — Macro Deck hot-reloads within ~2 seconds.
 
 ---
 
-## Analog Slider
+## Sliders (Built-in)
 
-Replace N consecutive button cells in a column with a vertical slider.
+Create vertical or horizontal sliders directly from the editor without plugins.
+
+### Quick Setup
+
+1. **Open the editor** and select a button
+2. **Style panel** → **Enable slider mode** ✓
+3. Set **Orientation**: Vertical (Y-axis) or Horizontal (X-axis)
+4. Set **Size**: number of cells to extend (1 = single cell, 2+ = multi-cell)
+5. **Bind variable**: choose or create a variable (0-100%)
+6. **Save button**
+
+### Features
+
+- **Multi-cell sliders**: Extend over N cells in any direction
+  - Vertical: extends downward (Y+)
+  - Horizontal: extends rightward (X+)
+- **Automatic warnings**: ⚠️ Shows how many buttons will be overridden
+- **Variable binding**: Slider value (0-100) → variable in real-time
+- **Two-way sync**: Change variable → slider updates instantly
+
+### Example
+
+Button at **row 2, col 1** with:
+- Orientation: **Vertical**
+- Size: **4**
+- Variable: **volume**
+
+Result: Slider occupies cells (2,1), (3,1), (4,1), (5,1) and drives `volume` variable.
+
+### Legacy Analog Sliders
+
+The old `analog_slider` plugin continues to work for backward compatibility.
+
+---
+
+## Analog Slider
 
 ```python
 # Via CreateSliderAction config:

@@ -94,6 +94,27 @@ input[type=range].vslider::-moz-range-thumb{
   width:28px;height:14px;background:#7c83fd;border-radius:4px;border:none}
 input[type=range].vslider::-moz-range-track{
   width:10px;border-radius:5px;background:#1e2d4a}
+/* Horizontal slider */
+input[type=range].hslider{
+  -webkit-appearance:none;appearance:none;
+  width:100%;height:12px;
+  background:transparent;cursor:pointer;
+  vertical-align:middle;display:flex;align-items:center;
+  pointer-events:auto}
+input[type=range].hslider::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:28px;
+  background:#7c83fd;border-radius:4px;cursor:pointer;
+  margin-top:-8px;pointer-events:auto;touch-action:none}
+input[type=range].hslider::-webkit-slider-runnable-track{
+  height:10px;border-radius:5px;background:#1e2d4a;
+  border:1px solid #7c83fd44;margin:1px 0;pointer-events:auto}
+input[type=range].hslider::-moz-range-thumb{
+  width:14px;height:28px;background:#7c83fd;
+  border-radius:4px;border:none;cursor:pointer;
+  margin-top:-9px;pointer-events:auto}
+input[type=range].hslider::-moz-range-track{
+  height:10px;border-radius:5px;background:#1e2d4a;
+  margin:1px 0;border:1px solid #7c83fd44;pointer-events:auto}
 .slider-value{font-size:.6rem;color:#9ca3af;font-variant-numeric:tabular-nums}
 
 /* ── Sub-folder button ── */
@@ -313,6 +334,18 @@ function handleMessage(msg) {
           el.textContent = text;
         }
       });
+      // Update slider values if they bind to this variable
+      document.querySelectorAll('[data-slider-variable]').forEach(el => {
+        if (el.dataset.sliderVariable === msg.variable.name) {
+          const input = el.querySelector('input[type=range]');
+          if (input) {
+            const val = Math.max(0, Math.min(100, Number(msg.variable.value) || 0));
+            input.value = val;
+            const valEl = el.querySelector('.slider-value');
+            if (valEl) valEl.textContent = Math.round(val) + '%';
+          }
+        }
+      });
       break;
 
     case 'BUTTON_STATE':
@@ -384,22 +417,40 @@ function renderGrid(buttons, subFolders, sliderCells) {
   for (let r = 0; r < currentRows; r++) {
     for (let c = 0; c < currentColumns; c++) {
       const pos = `${r}_${c}`;
+      const btn = btnMap[pos];
       const sliderId = sliderMap[pos];
 
+      // Skip if this cell is occupied by a new-style slider
+      if (btn && btn.slider_parent_position) {
+        continue;
+      }
+
+      // Legacy slider cell from old system
       if (sliderId) {
         if (renderedSliders.has(sliderId)) {
-          // This cell is covered by a previously rendered slider — skip
           continue;
         }
-        // Find slider height by counting consecutive cells in same column
         let h = 0;
         while (sliderMap[`${r + h}_${c}`] === sliderId) h++;
         renderedSliders.add(sliderId);
-        const sliderEl = makeSliderCell(sliderId, r, c, h, sliderCells);  // renamed: was `cell`
+        const sliderEl = makeSliderCell(sliderId, r, c, h, sliderCells);
         grid.appendChild(sliderEl);
-      } else if (btnMap[pos]) {
-        grid.appendChild(makeButton(btnMap[pos], cell));  // pass cell size for auto-fit
-      } else {
+      } 
+      // New-style slider button
+      else if (btn && btn.is_slider) {
+        if (renderedSliders.has(btn.button_id)) {
+          continue;
+        }
+        renderedSliders.add(btn.button_id);
+        const sliderEl = makeSliderButton(btn, cell, r, c);
+        grid.appendChild(sliderEl);
+      } 
+      // Regular button
+      else if (btn) {
+        grid.appendChild(makeButton(btn, cell));
+      } 
+      // Empty cell
+      else {
         const empty = document.createElement('div');
         empty.className = 'macro-btn empty';
         grid.appendChild(empty);
@@ -421,7 +472,115 @@ function renderGrid(buttons, subFolders, sliderCells) {
     folderStack.length > 0 ? '' : 'none';
 }
 
+/**
+ * Create a slider button element.
+ * Renders a horizontal or vertical range input with label and value display.
+ * Spans multiple cells if slider_size > 1.
+ */
+function makeSliderButton(btn, cellSize, row, col) {
+  const el = document.createElement('div');
+  el.className = 'macro-btn is-slider';
+  el.dataset.buttonId = btn.button_id;
+  el.dataset.sliderVariable = btn.slider_variable || '';
+  el.style.background = btn.background_color || '#0f1f3a';
+  el.style.borderColor = '#7c83fd55';
+  
+  // Set grid position and span
+  const size = btn.slider_size || 1;
+  const orientation = btn.slider_orientation || 'vertical';
+  el.style.gridColumn = orientation === 'horizontal' 
+    ? `${col + 1} / span ${size}` 
+    : `${col + 1}`;
+  el.style.gridRow = orientation === 'vertical'
+    ? `${row + 1} / span ${size}`
+    : `${row + 1}`;
+
+  const wrap = document.createElement('div');
+  let isVertical = orientation === 'vertical';
+  wrap.className = 'slider-wrap';
+  wrap.style.flexDirection = isVertical ? 'column' : 'row';
+  wrap.style.justifyContent = isVertical ? 'flex-start' : 'center';
+
+  // Label
+  if (btn.label) {
+    const label = document.createElement('div');
+    label.className = 'slider-label';
+    label.style.color = btn.label_color || '#ffffff';
+    label.textContent = btn.label;
+    wrap.appendChild(label);
+  }
+
+  // Track wrapper
+  const trackWrap = document.createElement('div');
+  trackWrap.className = 'slider-track-wrap';
+  trackWrap.style.flex = '1';
+  trackWrap.style.display = 'flex';
+  trackWrap.style.alignItems = isVertical ? 'center' : 'center';
+  trackWrap.style.justifyContent = 'center';
+  trackWrap.style.minHeight = isVertical ? '60px' : '60px';
+  trackWrap.style.minWidth = isVertical ? 'auto' : '60px';
+  trackWrap.style.pointerEvents = 'auto';
+  trackWrap.style.overflow = 'visible';
+
+  // Range input
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.className = isVertical ? 'vslider' : 'hslider';
+  input.min = '0';
+  input.max = '100';
+  input.step = '1';
+  input.value = '50';
+  input.style.cursor = 'pointer';
+  
+  // Apply responsive sizing via inline styles
+  if (isVertical) {
+    input.style.width = '36px';
+    input.style.height = '100%';
+  } else {
+    input.style.width = '100%';
+    input.style.height = '12px';
+  }
+
+  // Send SET_VARIABLE when slider changes
+  const sendSliderValue = () => {
+    const val = parseFloat(input.value) || 0;
+    console.log(`[Slider] Value changed to ${val}, variable: ${btn.slider_variable}`);
+    if (btn.slider_variable) {
+      send({ 
+        method: 'SET_VARIABLE', 
+        name: btn.slider_variable, 
+        value: val,
+        type: 'Float'
+      });
+    }
+  };
+  input.addEventListener('input', sendSliderValue);
+  input.addEventListener('change', sendSliderValue);
+  input.addEventListener('mouseup', sendSliderValue);
+
+  // Value display
+  const valEl = document.createElement('div');
+  valEl.className = 'slider-value';
+  valEl.style.color = '#7c83fd';
+  valEl.textContent = '50%';
+  input.addEventListener('input', () => {
+    valEl.textContent = Math.round(input.value) + '%';
+  });
+
+  trackWrap.appendChild(input);
+  wrap.appendChild(trackWrap);
+  wrap.appendChild(valEl);
+  el.appendChild(wrap);
+
+  return el;
+}
+
 function makeButton(btn, cellSize) {
+  // If this button is configured as a slider, render as slider instead
+  if (btn.is_slider) {
+    return makeSliderButton(btn, cellSize);
+  }
+
   const el = document.createElement('div');
   el.className = 'macro-btn' +
     (btn.state ? ' state-on' : '') +

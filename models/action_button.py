@@ -185,8 +185,13 @@ class ActionButton:
     state: bool = False
     state_binding: Optional[str] = None
     program: List[Block] = field(default_factory=list)
-    button_type: str = "button"
-    slider_config: dict = field(default_factory=dict)
+    # Slider mode: if is_slider=True, this button acts as a slider instead of a button
+    is_slider: bool = False
+    slider_size: int = 1  # number of cells to extend (1-max)
+    slider_orientation: str = "vertical"  # "vertical" or "horizontal"
+    slider_variable: str = ""  # variable name to bind slider value (0-100)
+    # If this cell is occupied by a slider from another button, points to that button's position
+    slider_parent_position: Optional[str] = None  # e.g. "4_3"
 
     def resolve_appearance(self, get_variable) -> dict:
         """Walk the program and apply style blocks / if-branch styles.
@@ -257,12 +262,30 @@ class ActionButton:
             "state":            self.state,
             "state_binding":    self.state_binding,
             "program":          [b.to_dict() for b in self.program],
-            "button_type":      self.button_type,
-            "slider_config":    self.slider_config,
+            "is_slider":        self.is_slider,
+            "slider_size":      self.slider_size if self.is_slider else None,
+            "slider_orientation": self.slider_orientation if self.is_slider else None,
+            "slider_variable":  self.slider_variable if self.is_slider else None,
+            "slider_parent_position": self.slider_parent_position,
         }
 
     @staticmethod
     def from_dict(d: dict) -> "ActionButton":
+        # Support old button_type="slider" → migrate to is_slider=True
+        old_button_type = d.get("button_type", "button")
+        is_slider = d.get("is_slider", False) or (old_button_type == "slider")
+        slider_orientation = d.get("slider_orientation", "vertical")
+        slider_variable = d.get("slider_variable", "")
+        
+        # For old-style sliders, extract variable from outputs if present
+        if is_slider and not slider_variable:
+            old_slider_cfg = d.get("slider_config", {})
+            outputs = old_slider_cfg.get("outputs", [])
+            for out in outputs:
+                if out.get("type") == "variable":
+                    slider_variable = out.get("variable_name", "")
+                    break
+        
         btn = ActionButton(
             button_id=d.get("button_id", str(uuid.uuid4())),
             label=d.get("label", ""),
@@ -272,8 +295,11 @@ class ActionButton:
             background_color=d.get("background_color", "#000000"),
             state=d.get("state", False),
             state_binding=d.get("state_binding"),
-            button_type=d.get("button_type", "button"),
-            slider_config=d.get("slider_config", {}),
+            is_slider=is_slider,
+            slider_size=d.get("slider_size", 1) if is_slider else 1,
+            slider_orientation=slider_orientation,
+            slider_variable=slider_variable,
+            slider_parent_position=d.get("slider_parent_position"),
         )
         if "program" in d:
             btn.program = [Block.from_dict(b) for b in d["program"]]
