@@ -327,9 +327,24 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
         </div>
       </div>
       <div class="field">
-        <label>Font size (px)</label>
-        <input type="number" id="f-font" min="8" max="48" value="12"
-               oninput="debounceSave()">
+        <label>Font size</label>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;
+                         color:var(--fg);cursor:pointer;user-select:none">
+            <input type="checkbox" id="f-font-auto" onchange="onFontAutoChange()"
+                   style="width:14px;height:14px;cursor:pointer">
+            Auto-fit to button
+          </label>
+          <input type="number" id="f-font" min="6" max="72" value="14"
+                 oninput="debounceSave()"
+                 style="width:70px"
+                 title="Font size in px">
+          <span style="font-size:.75rem;color:var(--muted)" id="f-font-px-label">px</span>
+        </div>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:3px" id="f-font-hint">
+          Auto-fit: largest font where the longest word fills the button width.
+          Each word appears on its own line.
+        </div>
       </div>
       <div class="field">
         <label>Icon (PNG, upload or paste base64)</label>
@@ -710,13 +725,13 @@ async function onCellClick(pos, btn) {
   document.querySelector(`[data-pos="${pos}"]`)?.classList.add('selected');
 
   if (!btn) {
-    // Create new empty button
+    // Create new empty button — auto-fit font by default
     editBtn = {
       position: pos,
       label: '',
       label_color: '#ffffff',
       background_color: '#000000',
-      label_font_size: 12,
+      label_font_size: null,
       icon: null,
       state_binding: null,
       program: [],
@@ -772,7 +787,12 @@ function showTab(name) {
 // ═══════════════════════════════════════════════════════════════════
 function populateStylePanel(btn) {
   document.getElementById('f-label').value        = btn.label || '';
-  document.getElementById('f-font').value         = btn.label_font_size || 12;
+  const isAuto = btn.label_font_size == null;
+  document.getElementById('f-font-auto').checked  = isAuto;
+  document.getElementById('f-font').value         = isAuto ? 14 : (btn.label_font_size || 14);
+  document.getElementById('f-font').style.display         = isAuto ? 'none' : '';
+  document.getElementById('f-font-px-label').style.display = isAuto ? 'none' : '';
+  document.getElementById('f-font-hint').style.display    = isAuto ? '' : 'none';
   setColor('f-lc', btn.label_color || '#ffffff');
   setColor('f-bg', btn.background_color || '#000000');
   const preview = document.getElementById('icon-preview');
@@ -899,11 +919,20 @@ async function editBoundVariable() {
 
 function collectStyleFromPanel() {
   if (!editBtn) return;
+  const isAuto = document.getElementById('f-font-auto').checked;
   editBtn.label            = document.getElementById('f-label').value;
-  editBtn.label_font_size  = parseInt(document.getElementById('f-font').value) || 12;
+  editBtn.label_font_size  = isAuto ? null : (parseInt(document.getElementById('f-font').value) || 14);
   editBtn.label_color      = document.getElementById('f-lc-text').value || '#ffffff';
   editBtn.background_color = document.getElementById('f-bg-text').value || '#000000';
   editBtn.state_binding    = document.getElementById('f-state-bind').value || null;
+}
+
+function onFontAutoChange() {
+  const isAuto = document.getElementById('f-font-auto').checked;
+  document.getElementById('f-font').style.display          = isAuto ? 'none' : '';
+  document.getElementById('f-font-px-label').style.display = isAuto ? 'none' : '';
+  document.getElementById('f-font-hint').style.display     = isAuto ? '' : 'none';
+  debounceSave();
 }
 
 // ═══════════════════════════════════════════════════════════════════

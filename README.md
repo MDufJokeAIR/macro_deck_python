@@ -122,6 +122,57 @@ macro_deck_python/
 
 ---
 
+## Launchers
+
+Pre-configured launch scripts for quick server startup:
+
+### Windows (`launchers/run.bat`)
+Double-click to start the server with the virtual environment.
+```batch
+@echo off
+cd /d "%~dp0"
+.\venv\Scripts\python.exe -m macro_deck_python %*
+```
+
+### Linux (`launchers/MacroDeck.desktop`)
+Desktop entry for quick launch from the application menu on Raspberry Pi / server.
+Edit the URL and port to match your server IP:
+```
+[Desktop Entry]
+Type=Application
+Name=MacroDeck
+Exec=/usr/bin/chromium --password-store=basic --start-maximized -app=http://192.168.1.100:8191
+Icon=web-browser
+Terminal=false
+```
+
+---
+
+## Recent Updates
+
+### Auto-fit Font Size (Label Scaling)
+
+Button labels now support intelligent, responsive font sizing:
+
+- **Auto-fit mode** (default for new buttons): Font size scales proportionally with the button cell size, making text readable on any screen (phone, tablet, desktop). Words are laid one per line, and overflow is prevented via automatic capping.
+- **Explicit size mode**: Set a fixed pixel size (px) for direct control.
+
+Toggle between modes in the editor's **Style panel** → **Font size** → **Auto-fit to button** checkbox.
+
+**How it works:**
+- Auto-fit computes: `fontSize = max(7, cellSize × 0.22)` (proportional to screen)
+- A safety cap prevents the longest word from overflowing the button edge
+- Each word appears on its own line for clean, readable layout
+
+**Model changes:**
+- `ActionButton.label_font_size` is now `Optional[int]`:
+  - `null` → auto-fit (computed by the pad client)
+  - `int` → explicit size in px (used as-is)
+  
+Existing buttons with explicit sizes continue to work unchanged.
+
+---
+
 ## CLI Options
 
 ```

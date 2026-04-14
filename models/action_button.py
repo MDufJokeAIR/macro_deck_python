@@ -176,7 +176,10 @@ class ActionButton:
     button_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     label: str = ""
     label_color: str = "#FFFFFF"
-    label_font_size: int = 12
+    # None  = auto-fit (pad client computes the largest font where the longest
+    #         word fills the button width, each word on its own line).
+    # int   = explicit size in px, used as-is on all screen sizes.
+    label_font_size: Optional[int] = None
     icon: Optional[str] = None
     background_color: str = "#000000"
     state: bool = False
@@ -264,7 +267,7 @@ class ActionButton:
             button_id=d.get("button_id", str(uuid.uuid4())),
             label=d.get("label", ""),
             label_color=d.get("label_color", "#FFFFFF"),
-            label_font_size=d.get("label_font_size", 12),
+            label_font_size=d.get("label_font_size"),   # None → auto-fit; int → explicit px
             icon=d.get("icon"),
             background_color=d.get("background_color", "#000000"),
             state=d.get("state", False),

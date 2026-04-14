@@ -61,9 +61,8 @@ html,body{height:100%;overflow:hidden;background:#0d0d1a;color:#e0e0e0;
 .macro-btn.state-on{background:#1e3a5f;border-color:#7c83fd}
 .macro-btn.has-actions{border-color:#2a3a5a}
 .macro-btn img.btn-icon{width:60%;height:60%;object-fit:contain;flex-shrink:0}
-.macro-btn .btn-label{font-size:clamp(0.5rem, 7vw, 1.2rem);text-align:center;line-height:1.1;
+.macro-btn .btn-label{text-align:center;line-height:1.15;
   word-break:break-word;max-width:90%;overflow:hidden;
-  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
   flex-shrink:1;min-height:auto}
 .macro-btn.empty{cursor:default;border-color:transparent;background:transparent}
 .macro-btn.is-slider{background:#0f1f3a;border:1px solid #7c83fd55;
@@ -229,6 +228,51 @@ function send(obj) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
+// ── Auto-fit font size ────────────────────────────────────────────────
+// Offscreen canvas reused for overflow guard text measurements.
+const _mc = (() => { const c = document.createElement('canvas'); return c.getContext('2d'); })();
+
+/**
+ * Return the largest font size (px) where the longest word in `words`
+ * fits within `availPx` pixels.  Used only as a safety cap to prevent
+ * very long words from overflowing the button — the primary sizing is
+ * screen-proportional (see screenProportionalFontSize).
+ */
+function fitFontSize(words, availPx) {
+  if (!words.length || availPx <= 0) return 99999;
+  const target = availPx * 0.88;
+  let lo = 5, hi = availPx;
+  for (let i = 0; i < 18; i++) {
+    const mid = (lo + hi) * 0.5;
+    _mc.font = `600 ${mid}px system-ui,-apple-system,sans-serif`;
+    let maxW = 0;
+    for (const w of words) {
+      const m = _mc.measureText(w).width;
+      if (m > maxW) maxW = m;
+    }
+    if (maxW <= target) lo = mid; else hi = mid;
+  }
+  return Math.floor(lo);
+}
+
+/**
+ * Compute the base font size for auto-fit labels from the cell size.
+ *
+ * Font size scales linearly with the cell (which itself scales with the
+ * device screen size), so the same label looks proportionally identical
+ * on a phone, a tablet, and a desktop — regardless of word length.
+ *
+ * The factor 0.22 is chosen so that on a typical 5×3 phone grid
+ * (~70 px cells) the font is ~15 px: readable without being huge.
+ * A safety cap via fitFontSize() prevents very long words from
+ * overflowing the button edge.
+ */
+function screenProportionalFontSize(words, cellSize) {
+  const proportional = Math.max(7, Math.round(cellSize * 0.22));
+  const cap = fitFontSize(words, cellSize - 12);   // prevent overflow
+  return Math.min(proportional, cap);
+}
+
 // ── Message handling ──────────────────────────────────────────────────
 function handleMessage(msg) {
   switch(msg.method) {
@@ -259,9 +303,15 @@ function handleMessage(msg) {
 
     case 'VARIABLE_CHANGED':
       if (msg.variable) variables[msg.variable.name] = msg.variable.value;
-      // Re-render labels that use this variable (cheap: just update text nodes)
+      // Re-render labels that use this variable.
+      // Auto-fit spans (data-autofit) keep their word-per-line layout.
       document.querySelectorAll('[data-label-template]').forEach(el => {
-        el.textContent = renderTemplate(el.dataset.labelTemplate);
+        const text = renderTemplate(el.dataset.labelTemplate);
+        if (el.dataset.autofit) {
+          el.textContent = text.trim().split(/\s+/).filter(Boolean).join('\n');
+        } else {
+          el.textContent = text;
+        }
       });
       break;
 
@@ -345,10 +395,10 @@ function renderGrid(buttons, subFolders, sliderCells) {
         let h = 0;
         while (sliderMap[`${r + h}_${c}`] === sliderId) h++;
         renderedSliders.add(sliderId);
-        const cell = makeSliderCell(sliderId, r, c, h, sliderCells);
-        grid.appendChild(cell);
+        const sliderEl = makeSliderCell(sliderId, r, c, h, sliderCells);  // renamed: was `cell`
+        grid.appendChild(sliderEl);
       } else if (btnMap[pos]) {
-        grid.appendChild(makeButton(btnMap[pos]));
+        grid.appendChild(makeButton(btnMap[pos], cell));  // pass cell size for auto-fit
       } else {
         const empty = document.createElement('div');
         empty.className = 'macro-btn empty';
@@ -371,7 +421,7 @@ function renderGrid(buttons, subFolders, sliderCells) {
     folderStack.length > 0 ? '' : 'none';
 }
 
-function makeButton(btn) {
+function makeButton(btn, cellSize) {
   const el = document.createElement('div');
   el.className = 'macro-btn' +
     (btn.state ? ' state-on' : '') +
@@ -392,12 +442,33 @@ function makeButton(btn) {
     const span = document.createElement('span');
     span.className = 'btn-label';
     span.style.color = btn.label_color || '#ffffff';
-    // Apply font size from server (in px), with adaptive scaling
-    if (btn.label_font_size) {
-      span.style.fontSize = `clamp(8px, ${btn.label_font_size * 0.8}px, ${btn.label_font_size}px)`;
-    }
     span.dataset.labelTemplate = btn.label;
-    span.textContent = renderTemplate(btn.label);
+
+    if (btn.label_font_size == null && cellSize > 0) {
+      // ── Auto-fit mode ──────────────────────────────────────────────
+      // Font size is proportional to the cell size (i.e. to the device
+      // screen), so every button on the same client shows the same size
+      // text regardless of how many characters it contains.
+      // Words are laid one-per-line; fitFontSize() caps the size so that
+      // no word overflows the button width.
+      const text  = renderTemplate(btn.label);
+      const words = text.trim().split(/\s+/).filter(Boolean);
+      const fs    = screenProportionalFontSize(words, cellSize);
+      span.style.fontSize   = fs + 'px';
+      span.style.lineHeight = '1.2';
+      span.style.whiteSpace = 'pre-line';
+      span.dataset.autofit  = '1';
+      span.textContent = words.join('\n');
+    } else {
+      // ── Explicit size mode ─────────────────────────────────────────
+      if (btn.label_font_size) {
+        span.style.fontSize = btn.label_font_size + 'px';
+      } else {
+        // Fallback when cellSize unknown (shouldn't happen in normal flow)
+        span.style.fontSize = 'clamp(8px, 2vw, 14px)';
+      }
+      span.textContent = renderTemplate(btn.label);
+    }
     el.appendChild(span);
   }
 
