@@ -100,16 +100,6 @@ body.slider-mode .cell.slider-candidate{border-color:#f59e0b;background:#f59e0b2
 body.slider-mode .slider-mode-bar{display:block}
 
 /* ── Inspector ───────────────────────────────────────────────────── */
-/* Type picker — shown when clicking an empty cell */
-#type-picker{padding:16px 14px;display:flex;flex-direction:column;gap:10px}
-#type-picker h3{font-size:.85rem;color:var(--muted);margin:0 0 4px}
-.type-pick-row{display:flex;gap:10px}
-.type-pick-btn{flex:1;padding:18px 10px;background:var(--surface3);border:2px solid var(--border);
-  border-radius:10px;cursor:pointer;text-align:center;transition:all .15s;color:var(--text)}
-.type-pick-btn:hover{border-color:var(--accent);background:var(--accent)11}
-.type-pick-btn .type-icon{font-size:1.8rem;display:block;margin-bottom:6px}
-.type-pick-btn .type-name{font-size:.85rem;font-weight:600}
-.type-pick-btn .type-desc{font-size:.7rem;color:var(--muted);margin-top:3px}
 #insp-header{padding:12px 14px 0;display:flex;align-items:center;justify-content:space-between}
 #insp-header h2{font-size:.95rem;color:var(--accent)}
 #insp-close{background:none;border:none;color:var(--muted);font-size:1.1rem;
@@ -302,200 +292,247 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
       <h2 id="insp-title">Button</h2>
       <button id="insp-close" onclick="closeInspector()" title="Close">✕</button>
     </div>
-
-    <!-- Type picker (shown for new empty cells) -->
-    <div id="type-picker" style="display:none">
-      <h3>What do you want to place here?</h3>
-      <div class="type-pick-row">
-        <button class="type-pick-btn" onclick="createNewButton()">
-          <span class="type-icon">🔲</span>
-          <div class="type-name">Button</div>
-          <div class="type-desc">Tap to trigger actions</div>
-        </button>
-        <button class="type-pick-btn" onclick="createNewSlider()">
-          <span class="type-icon">🎚️</span>
-          <div class="type-name">Slider</div>
-          <div class="type-desc">Drag to set a value</div>
-        </button>
-      </div>
+    <div id="insp-tabs">
+      <button class="tab-btn active" onclick="showTab('style')">Style</button>
+      <button class="tab-btn" onclick="showTab('actions')">Program</button>
+      <button class="tab-btn" id="tab-slider-btn"
+              onclick="showTab('slider')" style="display:none">Slider</button>
     </div>
 
-    <!-- Button inspector (tabs: Style + Program) -->
-    <div id="btn-inspector" style="display:none">
-      <div id="insp-tabs">
-        <button class="tab-btn active" onclick="showTab('style')">Style</button>
-        <button class="tab-btn" onclick="showTab('actions')">Program</button>
-      </div>
-
-      <!-- Style tab -->
-      <div class="tab-panel active" id="tab-style">
-        <div class="field">
-          <label>Label</label>
-          <input type="text" id="f-label" placeholder="Button label or {variable}"
-                 oninput="debounceSave()">
-        </div>
-        <div class="row">
-          <div class="field">
-            <label>Label colour</label>
-            <div class="color-row">
-              <input type="color" id="f-lc-picker"
-                     oninput="syncColor('f-lc-picker','f-lc-text')">
-              <input type="text" class="ctrl" id="f-lc-text" value="#FFFFFF"
-                     oninput="syncColor('f-lc-text','f-lc-picker')">
-            </div>
-          </div>
-          <div class="field">
-            <label>Background</label>
-            <div class="color-row">
-              <input type="color" id="f-bg-picker"
-                     oninput="syncColor('f-bg-picker','f-bg-text')">
-              <input type="text" class="ctrl" id="f-bg-text" value="#000000"
-                     oninput="syncColor('f-bg-text','f-bg-picker')">
-            </div>
-          </div>
-        </div>
-        <div class="field">
-          <label>Font size</label>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;
-                           color:var(--fg);cursor:pointer;user-select:none">
-              <input type="checkbox" id="f-font-auto" onchange="onFontAutoChange()"
-                     style="width:14px;height:14px;cursor:pointer">
-              Auto-fit to button
-            </label>
-            <input type="number" id="f-font" min="6" max="72" value="14"
-                   oninput="debounceSave()" style="width:70px" title="Font size in px">
-            <span style="font-size:.75rem;color:var(--muted)" id="f-font-px-label">px</span>
-          </div>
-          <div style="font-size:.7rem;color:var(--muted);margin-top:3px" id="f-font-hint">
-            Auto-fit: largest font where the longest word fills the button width.
-          </div>
-        </div>
-        <div class="field">
-          <label>Icon (PNG)</label>
-          <div class="icon-row">
-            <img id="icon-preview" class="icon-preview" src="" alt=""
-                 onerror="this.style.display='none'" style="display:none">
-            <div style="display:flex;flex-direction:column;gap:4px;flex:1">
-              <input type="file" id="icon-file" accept="image/png,image/jpeg,image/gif"
-                     onchange="loadIcon(this)">
-              <button class="btn btn-ghost btn-sm" onclick="clearIcon()">✕ Clear icon</button>
-            </div>
-          </div>
-        </div>
-        <div class="field">
-          <label>State binding (variable → on/off)</label>
-          <div style="display:flex;gap:4px;align-items:center">
-            <select id="f-state-bind" onchange="debounceSave()" style="flex:1">
-              <option value="">— none —</option>
-            </select>
-            <button class="btn btn-ghost btn-sm" title="Rename or retype this variable"
-                    onclick="editBoundVariable()" style="flex-shrink:0">✏</button>
-          </div>
-          <div id="auto-var-hint" style="font-size:.7rem;color:var(--accent);margin-top:2px;display:none"></div>
-        </div>
-        <button class="btn btn-primary" onclick="saveButton()">Save button</button>
-        <button class="btn btn-sm" style="background:var(--danger);color:#fff;margin-top:4px"
-                onclick="deleteCurrentButton()">🗑 Delete button</button>
-      </div>
-
-      <!-- Program tab -->
-      <div class="tab-panel" id="tab-actions">
-        <div id="program-root"></div>
-        <div style="margin-top:6px">
-          <button class="btn btn-primary" style="width:100%"
-                  onclick="saveButton()">&#x1F4BE; Save program</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Slider inspector -->
-    <div id="slider-inspector" style="display:none;padding:12px 14px;flex-direction:column;gap:10px">
+    <!-- Style tab -->
+    <div class="tab-panel active" id="tab-style">
       <div class="field">
         <label>Label</label>
-        <input type="text" id="f-sl-label" placeholder="e.g. Throttle"
+        <input type="text" id="f-label" placeholder="Button label or {variable}"
                oninput="debounceSave()">
       </div>
       <div class="row">
         <div class="field">
           <label>Label colour</label>
           <div class="color-row">
-            <input type="color" id="f-sl-lc-picker"
-                   oninput="syncColor('f-sl-lc-picker','f-sl-lc-text')">
-            <input type="text" class="ctrl" id="f-sl-lc-text" value="#7c83fd"
-                   oninput="syncColor('f-sl-lc-text','f-sl-lc-picker')">
+            <input type="color" id="f-lc-picker"
+                   oninput="syncColor('f-lc-picker','f-lc-text')">
+            <input type="text" class="ctrl" id="f-lc-text" value="#FFFFFF"
+                   oninput="syncColor('f-lc-text','f-lc-picker')">
           </div>
         </div>
         <div class="field">
           <label>Background</label>
           <div class="color-row">
-            <input type="color" id="f-sl-bg-picker"
-                   oninput="syncColor('f-sl-bg-picker','f-sl-bg-text')">
-            <input type="text" class="ctrl" id="f-sl-bg-text" value="#000000"
-                   oninput="syncColor('f-sl-bg-text','f-sl-bg-picker')">
+            <input type="color" id="f-bg-picker"
+                   oninput="syncColor('f-bg-picker','f-bg-text')">
+            <input type="text" class="ctrl" id="f-bg-text" value="#000000"
+                   oninput="syncColor('f-bg-text','f-bg-picker')">
           </div>
         </div>
       </div>
       <div class="field">
-        <label>Orientation</label>
-        <select id="f-slider-orientation" onchange="onSliderOrientationChange()" style="width:100%">
-          <option value="vertical">Vertical — extends downward</option>
-          <option value="horizontal">Horizontal — extends rightward</option>
-        </select>
+        <label>Font size</label>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;
+                         color:var(--fg);cursor:pointer;user-select:none">
+            <input type="checkbox" id="f-font-auto" onchange="onFontAutoChange()"
+                   style="width:14px;height:14px;cursor:pointer">
+            Auto-fit to button
+          </label>
+          <input type="number" id="f-font" min="6" max="72" value="14"
+                 oninput="debounceSave()"
+                 style="width:70px"
+                 title="Font size in px">
+          <span style="font-size:.75rem;color:var(--muted)" id="f-font-px-label">px</span>
+        </div>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:3px" id="f-font-hint">
+          Auto-fit: largest font where the longest word fills the button width.
+          Each word appears on its own line.
+        </div>
       </div>
       <div class="field">
-        <label>Size (cells)</label>
-        <div style="display:flex;gap:4px;align-items:center">
-          <input type="number" id="f-slider-size" min="1" max="16" value="3"
-                 onchange="onSliderSizeChange()" style="flex:1">
-          <span style="font-size:.75rem;color:var(--muted)">cell(s)</span>
-        </div>
-        <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
-          Occupies <span id="slider-cells-affected">3</span> cell(s).
-          <span id="slider-override-warning" style="color:var(--danger);display:none">
-            ⚠ Will override <span id="override-count">0</span> existing cell(s)
-          </span>
+        <label>Icon (PNG, upload or paste base64)</label>
+        <div class="icon-row">
+          <img id="icon-preview" class="icon-preview" src="" alt=""
+               onerror="this.style.display='none'" style="display:none">
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+            <input type="file" id="icon-file" accept="image/png,image/jpeg,image/gif"
+                   onchange="loadIcon(this)">
+            <button class="btn btn-ghost btn-sm" onclick="clearIcon()">✕ Clear icon</button>
+          </div>
         </div>
       </div>
       <div class="field">
-        <label>Variable (Float)</label>
+        <label>State binding (variable → on/off)</label>
         <div style="display:flex;gap:4px;align-items:center">
-          <select id="f-slider-variable" onchange="debounceSave()" style="flex:1">
-            <option value="">— create new —</option>
+          <select id="f-state-bind" onchange="debounceSave()" style="flex:1">
+            <option value="">— none —</option>
           </select>
-          <button class="btn btn-ghost btn-sm" onclick="editSliderVariable()"
-                  style="flex-shrink:0" title="New / rename">✏</button>
+          <button class="btn btn-ghost btn-sm" title="Rename or retype this variable"
+                  onclick="editBoundVariable()" style="flex-shrink:0">✏</button>
+        </div>
+        <div id="auto-var-hint" style="font-size:.7rem;color:var(--accent);margin-top:2px;display:none"></div>
+      </div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;
+                       color:var(--fg);cursor:pointer;user-select:none">
+          <input type="checkbox" id="f-is-slider" onchange="onIsSliderChange()"
+                 style="width:14px;height:14px;cursor:pointer">
+          Convert to slider (enable slider tab)
+        </label>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+          Enable this to use the button as a slider extending over multiple cells.
         </div>
       </div>
-      <div class="row" style="gap:8px">
-        <div class="field" style="flex:1">
-          <label>Min</label>
-          <input type="number" id="f-slider-min" value="0" step="any"
-                 oninput="debounceSave()" style="width:100%">
-        </div>
-        <div class="field" style="flex:1">
-          <label>Max</label>
-          <input type="number" id="f-slider-max" value="1" step="any"
-                 oninput="debounceSave()" style="width:100%">
-        </div>
-      </div>
-      <div class="row" style="gap:8px">
-        <div class="field" style="flex:1">
-          <label>Step</label>
-          <input type="number" id="f-slider-step" value="0.01" step="any" min="0"
-                 oninput="debounceSave()" style="width:100%">
-        </div>
-        <div class="field" style="flex:1">
-          <label>Initial</label>
-          <input type="number" id="f-slider-initial" value="0" step="any"
-                 oninput="debounceSave()" style="width:100%">
-        </div>
-      </div>
-      <button class="btn btn-primary" onclick="saveSlider()">Save slider</button>
+      <button class="btn btn-primary" onclick="saveButton()">Save button</button>
       <button class="btn btn-sm" style="background:var(--danger);color:#fff;margin-top:4px"
-              onclick="deleteCurrentButton()">🗑 Delete slider</button>
+              onclick="deleteCurrentButton()">🗑 Delete button</button>
     </div>
 
+    <!-- Program tab -->
+    <div class="tab-panel" id="tab-actions">
+      <div id="program-root"></div>
+      <div style="margin-top:6px">
+        <button class="btn btn-primary" style="width:100%"
+                onclick="saveButton()">&#x1F4BE; Save program</button>
+      </div>
+    </div>
+
+    <!-- Slider tab -->
+    <div class="tab-panel" id="tab-slider">
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:5px;font-size:.82rem;
+                       color:var(--fg);cursor:pointer;user-select:none">
+          <input type="checkbox" id="f-enable-slider" onchange="onEnableSliderChange()"
+                 style="width:14px;height:14px;cursor:pointer">
+          Enable slider mode
+        </label>
+        <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+          Convert this button into a slider that extends over multiple cells.
+        </div>
+      </div>
+
+      <!-- New Slider Settings -->
+      <div id="slider-new-settings" style="display:none;padding:12px;
+                                           background:var(--bg-alt);border-radius:4px;
+                                           margin:8px 0;border-left:3px solid var(--accent)">
+        <div class="field">
+          <label>Orientation</label>
+          <select id="f-slider-orientation" onchange="onSliderOrientationChange()" style="width:100%">
+            <option value="vertical">Vertical (Y-axis) — extends downward</option>
+            <option value="horizontal">Horizontal (X-axis) — extends rightward</option>
+          </select>
+        </div>
+        
+        <div class="field">
+          <label>Size (cells to extend)</label>
+          <div style="display:flex;gap:4px;align-items:center">
+            <input type="number" id="f-slider-size" min="1" max="16" value="1" 
+                   onchange="onSliderSizeChange()" style="flex:1">
+            <span style="font-size:.75rem;color:var(--muted)">cell(s)</span>
+          </div>
+          <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+            This slider will occupy <span id="slider-cells-affected">1</span> cells.
+            <span id="slider-override-warning" style="color:var(--danger);display:none">
+              <br>⚠️ Will override <span id="override-count">0</span> button(s)
+            </span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Bind variable</label>
+          <div style="display:flex;gap:4px;align-items:center">
+            <select id="f-slider-variable" onchange="debounceSave()" style="flex:1">
+              <option value="">— create new —</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" title="Create or rename slider variable"
+                    onclick="editSliderVariable()" style="flex-shrink:0">✏</button>
+          </div>
+          <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+            Slider writes a Float to this variable on every change.
+          </div>
+        </div>
+
+        <div class="row" style="gap:8px">
+          <div class="field" style="flex:1">
+            <label>Min value</label>
+            <input type="number" id="f-slider-min" value="0" step="any"
+                   oninput="debounceSave()" style="width:100%">
+          </div>
+          <div class="field" style="flex:1">
+            <label>Max value</label>
+            <input type="number" id="f-slider-max" value="1" step="any"
+                   oninput="debounceSave()" style="width:100%">
+          </div>
+        </div>
+
+        <div class="row" style="gap:8px">
+          <div class="field" style="flex:1">
+            <label>Step</label>
+            <input type="number" id="f-slider-step" value="0.01" step="any" min="0"
+                   oninput="debounceSave()" style="width:100%"
+                   title="Snap interval. Use 0 for continuous.">
+          </div>
+          <div class="field" style="flex:1">
+            <label>Initial value</label>
+            <input type="number" id="f-slider-initial" value="0" step="any"
+                   oninput="debounceSave()" style="width:100%">
+          </div>
+        </div>
+      </div>
+
+      <!-- Legacy Slider Settings (hidden by default) -->
+      <div id="slider-legacy-settings" style="display:none;padding:12px;
+                                              background:var(--bg-alt);border-radius:4px;
+                                              margin:8px 0;border-left:3px solid var(--muted)">
+        <h4 style="margin:0 0 8px 0;font-size:.9rem">Legacy Slider Settings</h4>
+        <div class="slider-viz">
+          <div class="slider-preview">
+            <div class="slider-track" id="sv-track" style="height:80px">
+              <div class="slider-thumb"></div>
+            </div>
+            <div style="font-size:.75rem;color:var(--muted);margin-top:4px">
+              <div id="sv-max">100</div>
+              <div style="margin:4px 0;color:var(--accent)" id="sv-cur">50</div>
+              <div id="sv-min">0</div>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Min</label>
+            <input type="number" id="sl-min" value="0" oninput="updateSliderPreview()">
+          </div>
+          <div class="field">
+            <label>Max</label>
+            <input type="number" id="sl-max" value="100" oninput="updateSliderPreview()">
+          </div>
+          <div class="field">
+            <label>Step</label>
+            <input type="number" id="sl-step" value="1" min="0" step="any">
+          </div>
+        </div>
+        <div class="field">
+          <label>Label</label>
+          <input type="text" id="sl-label" placeholder="Volume">
+        </div>
+        <div class="field">
+          <label>Colour</label>
+          <div class="color-row">
+            <input type="color" id="sl-color" value="#7c83fd"
+                   oninput="syncColor('sl-color','sl-color-txt')">
+            <input type="text" class="ctrl" id="sl-color-txt" value="#7c83fd"
+                   oninput="syncColor('sl-color-txt','sl-color')">
+          </div>
+        </div>
+        <div class="field">
+          <label>Height (rows)</label>
+          <input type="number" id="sl-size" min="1" max="10" value="3">
+        </div>
+        <h3 style="margin:12px 0 8px 0; font-size:.9rem">Outputs</h3>
+        <div id="slider-outputs" style="display:flex;flex-direction:column;gap:6px"></div>
+        <button class="btn btn-ghost btn-sm" onclick="addSliderOutput()">+ Add output</button>
+      </div>
+
+      <button class="btn btn-primary" style="margin-top:8px"
+              onclick="saveButton()">Save button</button>
+    </div>
   </div><!-- /inspector -->
 </div><!-- /workspace -->
 </div><!-- /app -->
@@ -800,99 +837,88 @@ async function onCellClick(pos, btn) {
   document.querySelector(`[data-pos="${pos}"]`)?.classList.add('selected');
 
   if (!btn) {
-    // Empty cell — let the user choose Button or Slider
-    editBtn = null;
-    _showInspectorPanel('picker');
-    document.getElementById('inspector').classList.remove('hidden');
-    document.getElementById('insp-title').textContent = 'New cell';
-    return;
-  }
-
-  editBtn = JSON.parse(JSON.stringify(btn));
-  const kind = btn.kind || (btn.button_type === 'slider' ? 'slider' : 'button');
-
-  if (kind === 'slider') {
-    _showInspectorPanel('slider');
-    document.getElementById('insp-title').textContent = 'Slider';
-    populateSliderPanel(editBtn);
+    // Create new empty button — auto-fit font by default
+    editBtn = {
+      position: pos,
+      label: '',
+      label_color: '#ffffff',
+      background_color: '#000000',
+      label_font_size: null,
+      icon: null,
+      state_binding: null,
+      program: [],
+      kind: 'button',
+      slider_size: 1,
+      slider_orientation: 'vertical',
+      slider_variable: '',
+    };
+    openInspector('New Button', false);
+  } else if (btn.kind === 'slider' || btn.button_type === 'slider') {
+    // Slider button (new or legacy) — open in Slider tab
+    editBtn = { ...btn };
+    openInspector('Button', true, 'slider');  // Open Slider tab
   } else {
-    _showInspectorPanel('button');
-    document.getElementById('insp-title').textContent = 'Button';
-    populateStylePanel(editBtn);
-    populateActionsPanel(editBtn);
+    // Regular button
+    editBtn = JSON.parse(JSON.stringify(btn));
+    openInspector('Button', false);
   }
-  document.getElementById('inspector').classList.remove('hidden');
+  populateStylePanel(editBtn);
+  await populateSliderPanel(editBtn);
+  populateActionsPanel(editBtn);
   await populateVariableSelect();
 }
 
-// Show exactly one of: the type picker, the button inspector, or the slider inspector
-function _showInspectorPanel(which) {
-  document.getElementById('type-picker').style.display    = which === 'picker' ? 'flex' : 'none';
-  document.getElementById('btn-inspector').style.display  = which === 'button' ? 'block' : 'none';
-  document.getElementById('slider-inspector').style.display = which === 'slider' ? 'flex' : 'none';
-}
-
-// Called by the type-picker buttons
-function createNewButton() {
-  editBtn = {
-    position: selectedPos,
-    label: '', label_color: '#ffffff', background_color: '#000000',
-    label_font_size: null, icon: null, state_binding: null,
-    program: [], kind: 'button',
-  };
-  _showInspectorPanel('button');
-  document.getElementById('insp-title').textContent = 'New Button';
-  populateStylePanel(editBtn);
-  populateActionsPanel(editBtn);
-  populateVariableSelect();
-}
-
-function createNewSlider() {
-  editBtn = {
-    position: selectedPos,
-    label: '', label_color: '#7c83fd', background_color: '#000000',
-    kind: 'slider', size: 3, orientation: 'vertical',
-    variable: '', min_value: 0, max_value: 1, step: 0.01, initial: 0,
-  };
-  _showInspectorPanel('slider');
-  document.getElementById('insp-title').textContent = 'New Slider';
-  populateSliderPanel(editBtn);
-  populateVariableSelect();
+// ═══════════════════════════════════════════════════════════════════
+// Inspector
+// ═══════════════════════════════════════════════════════════════════
+function openInspector(title, isSlider, tabName) {
+  document.getElementById('inspector').classList.remove('hidden');
+  document.getElementById('insp-title').textContent = title;
+  const slTab = document.getElementById('tab-slider-btn');
+  slTab.style.display = isSlider ? '' : 'none';
+  if (tabName) {
+    showTab(tabName);
+  } else if (isSlider) {
+    showTab('slider');
+  } else {
+    showTab('style');
+  }
+  renderGrid();
 }
 
 function closeInspector() {
   document.getElementById('inspector').classList.add('hidden');
   selectedPos = null;
-  editBtn = null;
   document.querySelectorAll('.cell.selected').forEach(el => el.classList.remove('selected'));
   renderGrid();
 }
 
 function showTab(name) {
-  document.querySelectorAll('#btn-inspector .tab-btn').forEach((b, i) => {
-    const names = ['style', 'actions'];
+  document.querySelectorAll('.tab-btn').forEach((b,i) => {
+    const names = ['style','actions','slider'];
     b.classList.toggle('active', names[i] === name);
   });
-  document.querySelectorAll('#btn-inspector .tab-panel').forEach(p => p.classList.remove('active'));
-  document.getElementById('tab-' + name)?.classList.add('active');
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-'+name)?.classList.add('active');
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Style panel (buttons only)
+// Style panel
 // ═══════════════════════════════════════════════════════════════════
 function populateStylePanel(btn) {
-  document.getElementById('f-label').value       = btn.label || '';
+  document.getElementById('f-label').value        = btn.label || '';
   const isAuto = btn.label_font_size == null;
-  document.getElementById('f-font-auto').checked = isAuto;
-  document.getElementById('f-font').value        = isAuto ? 14 : (btn.label_font_size || 14);
-  document.getElementById('f-font').style.display          = isAuto ? 'none' : '';
+  document.getElementById('f-font-auto').checked  = isAuto;
+  document.getElementById('f-font').value         = isAuto ? 14 : (btn.label_font_size || 14);
+  document.getElementById('f-font').style.display         = isAuto ? 'none' : '';
   document.getElementById('f-font-px-label').style.display = isAuto ? 'none' : '';
-  document.getElementById('f-font-hint').style.display     = isAuto ? '' : 'none';
+  document.getElementById('f-font-hint').style.display    = isAuto ? '' : 'none';
   setColor('f-lc', btn.label_color || '#ffffff');
   setColor('f-bg', btn.background_color || '#000000');
   const preview = document.getElementById('icon-preview');
   if (btn.icon) {
-    preview.src = btn.icon.startsWith('data:') ? btn.icon : `data:image/png;base64,${btn.icon}`;
+    preview.src = btn.icon.startsWith('data:') ? btn.icon
+                : `data:image/png;base64,${btn.icon}`;
     preview.style.display = '';
   } else {
     preview.style.display = 'none';
@@ -900,18 +926,46 @@ function populateStylePanel(btn) {
 }
 
 async function populateSliderPanel(btn) {
-  document.getElementById('f-sl-label').value          = btn.label || '';
-  setColor('f-sl-lc', btn.label_color || '#7c83fd');
-  setColor('f-sl-bg', btn.background_color || '#000000');
-  document.getElementById('f-slider-orientation').value = btn.orientation || btn.slider_orientation || 'vertical';
-  document.getElementById('f-slider-size').value        = btn.size || btn.slider_size || 3;
-  document.getElementById('f-slider-variable').value   = btn.variable || btn.slider_variable || '';
-  document.getElementById('f-slider-min').value         = btn.min_value ?? btn.slider_min ?? 0;
-  document.getElementById('f-slider-max').value         = btn.max_value ?? btn.slider_max ?? 1;
-  document.getElementById('f-slider-step').value        = btn.step ?? btn.slider_step ?? 0.01;
-  document.getElementById('f-slider-initial').value     = btn.initial ?? btn.slider_initial ?? 0;
-  await updateSliderVariableList();
-  onSliderSizeChange();
+  // Determine if this is a new or legacy slider
+  const isNewSlider = btn.kind === 'slider' || false;
+  const isLegacySlider = btn.button_type === 'slider' || false;
+  
+  document.getElementById('f-enable-slider').checked = isNewSlider || isLegacySlider;
+  
+  if (isNewSlider) {
+    // Show new slider settings
+    document.getElementById('slider-new-settings').style.display = 'block';
+    document.getElementById('slider-legacy-settings').style.display = 'none';
+    
+    document.getElementById('f-slider-size').value        = btn.size || 1;
+    document.getElementById('f-slider-orientation').value = btn.orientation || 'vertical';
+    document.getElementById('f-slider-variable').value    = btn.variable || '';
+    document.getElementById('f-slider-min').value         = btn.min_value ?? 0;
+    document.getElementById('f-slider-max').value         = btn.max_value ?? 1;
+    document.getElementById('f-slider-step').value        = btn.step ?? 0.01;
+    document.getElementById('f-slider-initial').value     = btn.initial ?? 0;
+    await updateSliderVariableList();
+    onSliderSizeChange();
+  } else if (isLegacySlider) {
+    // Show legacy slider settings
+    document.getElementById('slider-new-settings').style.display = 'none';
+    document.getElementById('slider-legacy-settings').style.display = 'block';
+    
+    const cfg = btn.slider_config || {};
+    document.getElementById('sl-min').value = cfg.min_value || 0;
+    document.getElementById('sl-max').value = cfg.max_value || 100;
+    document.getElementById('sl-step').value = cfg.step || 1;
+    document.getElementById('sl-label').value = cfg.label || '';
+    document.getElementById('sl-color').value = cfg.color || '#7c83fd';
+    document.getElementById('sl-color-txt').value = cfg.color || '#7c83fd';
+    document.getElementById('sl-size').value = cfg.size || 3;
+    updateSliderPreview();
+    if (cfg.outputs) populateLegacyOutputs(cfg.outputs);
+  } else {
+    // No slider mode
+    document.getElementById('slider-new-settings').style.display = 'none';
+    document.getElementById('slider-legacy-settings').style.display = 'none';
+  }
 }
 
 function setColor(id, hex) {
@@ -1038,17 +1092,27 @@ function collectStyleFromPanel() {
 
 function collectSliderFromPanel() {
   if (!editBtn) return;
-  editBtn.label            = document.getElementById('f-sl-label').value;
-  editBtn.label_color      = document.getElementById('f-sl-lc-text').value || '#7c83fd';
-  editBtn.background_color = document.getElementById('f-sl-bg-text').value || '#000000';
-  editBtn.orientation      = document.getElementById('f-slider-orientation').value || 'vertical';
-  editBtn.size             = parseInt(document.getElementById('f-slider-size').value) || 3;
-  editBtn.variable         = document.getElementById('f-slider-variable').value || '';
-  editBtn.min_value        = parseFloat(document.getElementById('f-slider-min').value) || 0;
-  editBtn.max_value        = parseFloat(document.getElementById('f-slider-max').value) || 1;
-  editBtn.step             = parseFloat(document.getElementById('f-slider-step').value) || 0.01;
-  editBtn.initial          = parseFloat(document.getElementById('f-slider-initial').value) || 0;
-  editBtn.kind             = 'slider';  // always — slider inspector is slider-only
+  const isNewSlider = document.getElementById('f-enable-slider').checked;
+  
+  if (isNewSlider) {
+    editBtn.kind = 'slider';
+    editBtn.size        = parseInt(document.getElementById('f-slider-size').value) || 1;
+    editBtn.orientation = document.getElementById('f-slider-orientation').value || 'vertical';
+    editBtn.variable    = document.getElementById('f-slider-variable').value || '';
+    editBtn.min_value         = parseFloat(document.getElementById('f-slider-min').value)     ?? 0;
+    editBtn.max_value         = parseFloat(document.getElementById('f-slider-max').value)     ?? 1;
+    editBtn.step        = parseFloat(document.getElementById('f-slider-step').value)    ?? 0.01;
+    editBtn.initial     = parseFloat(document.getElementById('f-slider-initial').value) ?? 0;
+  } else {
+    editBtn.kind = 'button';
+    editBtn.size        = 1;
+    editBtn.orientation = 'vertical';
+    editBtn.variable    = '';
+    editBtn.min_value         = 0;
+    editBtn.max_value         = 1;
+    editBtn.step        = 0.01;
+    editBtn.initial     = 0;
+  }
 }
 
 function onFontAutoChange() {
@@ -1059,8 +1123,23 @@ function onFontAutoChange() {
   debounceSave();
 }
 
-// onIsSliderChange / onEnableSliderChange removed — type is now fixed at creation
-// via the type-picker (createNewButton / createNewSlider).
+function onIsSliderChange() {
+  const isSlider = document.getElementById('f-is-slider').checked;
+  editBtn.kind = isSlider ? 'slider' : 'button';
+  document.getElementById('tab-slider-btn').style.display = isSlider ? '' : 'none';
+  debounceSave();
+}
+
+function onEnableSliderChange() {
+  const isEnabled = document.getElementById('f-enable-slider').checked;
+  document.getElementById('slider-new-settings').style.display = isEnabled ? 'block' : 'none';
+  if (isEnabled) {
+    // Populate variable list when slider is enabled
+    updateSliderVariableList();
+    onSliderSizeChange();  // Show warning if applicable
+  }
+  debounceSave();
+}
 
 async function updateSliderVariableList() {
   // Refresh variable list from server
@@ -1795,6 +1874,144 @@ window.syncKeyPickerBlock = function(el, pathKeyOverride, keysOverride) {
 };
 
 // ═══════════════════════════════════════════════════════════════════
+// Slider panel
+// ═══════════════════════════════════════════════════════════════════
+function populateSliderPanel(cfg) {
+  document.getElementById('sl-min').value   = cfg.min_value  ?? 0;
+  document.getElementById('sl-max').value   = cfg.max_value  ?? 100;
+  document.getElementById('sl-step').value  = cfg.step       ?? 1;
+  document.getElementById('sl-label').value = cfg.label      || '';
+  document.getElementById('sl-size').value  = cfg.size       ?? 3;
+  const color = cfg.color || '#7c83fd';
+  document.getElementById('sl-color').value     = color;
+  document.getElementById('sl-color-txt').value = color;
+  renderSliderOutputs(cfg.outputs || []);
+  updateSliderPreview();
+}
+
+function updateSliderPreview() {
+  const min = parseFloat(document.getElementById('sl-min').value) || 0;
+  const max = parseFloat(document.getElementById('sl-max').value) || 100;
+  const cur = (min + max) / 2;
+  document.getElementById('sv-min').textContent = min;
+  document.getElementById('sv-max').textContent = max;
+  document.getElementById('sv-cur').textContent = cur.toFixed(1);
+  const color = document.getElementById('sl-color')?.value || '#7c83fd';
+  document.getElementById('sv-track').style.background = color + '33';
+  document.querySelector('.slider-thumb').style.background = color;
+}
+
+function populateLegacyOutputs(outputs) {
+  // Initialize editSlider with the legacy slider's outputs for editing
+  if (!editSlider) editSlider = {};
+  editSlider.outputs = outputs || [];
+  renderSliderOutputs(editSlider.outputs);
+}
+
+function renderSliderOutputs(outputs) {
+  const wrap = document.getElementById('slider-outputs');
+  wrap.innerHTML = '';
+  outputs.forEach((out, i) => {
+    const d = document.createElement('div');
+    d.className = 'output-item';
+    const type = out.type || 'variable';
+    d.innerHTML = `
+      <div class="output-header">
+        <select onchange="changeOutputType(${i},this.value)" style="background:var(--surface3);
+          color:var(--text);border:1px solid var(--border);border-radius:5px;
+          padding:4px 8px;font-size:.8rem">
+          <option value="variable"  ${type==='variable' ?'selected':''}>Variable</option>
+          <option value="threshold" ${type==='threshold'?'selected':''}>Key Threshold</option>
+        </select>
+        <button class="action-del" onclick="removeSliderOutput(${i})">✕</button>
+      </div>
+      <div id="out-cfg-${i}">${renderOutputConfig(out, i)}</div>`;
+    wrap.appendChild(d);
+  });
+}
+
+function renderOutputConfig(out, i) {
+  if (out.type === 'variable') {
+    return `
+      <div class="field">
+        <label>Variable name</label>
+        <input type="text" value="${out.variable_name||''}"
+          onchange="updateOutputCfg(${i},'variable_name',this.value)"
+          placeholder="e.g. master_volume">
+      </div>
+      <div class="field">
+        <label>Type</label>
+        <select onchange="updateOutputCfg(${i},'variable_type',this.value)">
+          ${['Float','Integer','String','Bool'].map(t =>
+            `<option ${(out.variable_type||'Float')===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>`;
+  }
+  if (out.type === 'threshold') {
+    const zones = out.thresholds || [];
+    return `
+      <div style="font-size:.75rem;color:var(--muted);margin-bottom:4px">
+        ${zones.length} zone(s) configured
+        <button class="btn btn-ghost btn-sm" style="margin-left:4px"
+          onclick="editThresholds(${i})">Edit zones</button>
+      </div>`;
+  }
+  return '';
+}
+
+window.changeOutputType = function(i, type) {
+  if (!editSlider) return;
+  const outs = editSlider.outputs || [];
+  outs[i] = { type };
+  editSlider.outputs = outs;
+  renderSliderOutputs(outs);
+};
+
+window.updateOutputCfg = function(i, key, val) {
+  if (!editSlider) return;
+  editSlider.outputs = editSlider.outputs || [];
+  editSlider.outputs[i] = { ...(editSlider.outputs[i]||{}), [key]: val };
+};
+
+window.removeSliderOutput = function(i) {
+  if (!editSlider) return;
+  editSlider.outputs.splice(i, 1);
+  renderSliderOutputs(editSlider.outputs);
+};
+
+function addSliderOutput() {
+  if (!editSlider) editSlider = {};
+  editSlider.outputs = editSlider.outputs || [];
+  editSlider.outputs.push({ type: 'variable', variable_name: '', variable_type: 'Float' });
+  renderSliderOutputs(editSlider.outputs);
+}
+
+window.editThresholds = function(i) {
+  const out = editSlider?.outputs?.[i];
+  if (!out) return;
+  const txt = prompt('Edit thresholds (JSON array):\n[{"min":0,"max":33,"keys":["1"],"mode":"crossing"},...]',
+    JSON.stringify(out.thresholds||[], null, 2));
+  if (txt === null) return;
+  try {
+    out.thresholds = JSON.parse(txt);
+    renderSliderOutputs(editSlider.outputs);
+  } catch(e) {
+    toast('Invalid JSON', true);
+  }
+};
+
+function collectLegacySliderFromPanel() {
+  if (!editSlider) editSlider = {};
+  editSlider.min_value  = parseFloat(document.getElementById('sl-min').value)  || 0;
+  editSlider.max_value  = parseFloat(document.getElementById('sl-max').value)  || 100;
+  editSlider.step       = parseFloat(document.getElementById('sl-step').value) || 1;
+  editSlider.label      = document.getElementById('sl-label').value;
+  editSlider.size       = parseInt(document.getElementById('sl-size').value)   || 3;
+  editSlider.color      = document.getElementById('sl-color').value;
+  editSlider.current_value = editSlider.current_value ?? editSlider.min_value;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Save
 // ═══════════════════════════════════════════════════════════════════
 function debounceSave() {
@@ -1805,50 +2022,67 @@ function debounceSave() {
 async function saveButton() {
   if (!editBtn || !selectedPos) return;
   collectStyleFromPanel();
-  editBtn.kind = 'button';   // saveButton always saves a button
+  collectSliderFromPanel();  // Collect slider settings if enabled
 
+  const payload = {
+    ...editBtn,
+    position: selectedPos,
+  };
   const fid = folderStack.length ? folderStack.at(-1).folder_id : null;
-  const payload = { ...editBtn, position: selectedPos };
   if (fid) payload.folder_id = fid;
 
-  const r = await POST(`/api/profiles/${activeProfileId}/buttons`, payload);
-  if (r.error) { toast('Save failed: ' + (r.error || 'unknown'), true); return; }
-
+  // If this is a slider, handle size extension
+  const isSlider = editBtn.kind === 'slider' || false;
+  const sliderSize = editBtn.size || 1;
+  const orientation = editBtn.orientation || 'vertical';
+  
+  if (isSlider && sliderSize > 1) {
+    // Calculate occupied positions
+    const [r, c] = selectedPos.split('_').map(Number);
+    const occupiedPositions = [];
+    
+    if (orientation === 'vertical') {
+      for (let i = 1; i < sliderSize; i++) {
+        occupiedPositions.push(`${r + i}_${c}`);
+      }
+    } else {
+      for (let i = 1; i < sliderSize; i++) {
+        occupiedPositions.push(`${r}_${c + i}`);
+      }
+    }
+    
+    // Save the main slider button
+    let r1 = await POST(`/api/profiles/${activeProfileId}/buttons`, payload);
+    if (!r1.button_id && !r1.position && r1.error) {
+      toast('Save failed: '+(r1.error||'unknown'), true);
+      return;
+    }
+    
+    // Now save occupied buttons
+    for (const pos of occupiedPositions) {
+      const occupiedBtn = {
+        position: pos,
+        label: '',
+        slider_parent_position: selectedPos,
+        button_type: 'button',
+      };
+      if (fid) occupiedBtn.folder_id = fid;
+      await POST(`/api/profiles/${activeProfileId}/buttons`, occupiedBtn);
+    }
+  } else {
+    // Regular save (including single-cell sliders)
+    const r = await POST(`/api/profiles/${activeProfileId}/buttons`, payload);
+    if (!r.button_id && !r.position && r.error) {
+      toast('Save failed: '+(r.error||'unknown'), true);
+      return;
+    }
+  }
+  
   toast('Saved ✓');
   await loadGrid();
-  document.querySelector(`[data-pos="${selectedPos}"]`)?.classList.add('selected');
-}
-
-async function saveSlider() {
-  if (!editBtn || !selectedPos) return;
-  collectSliderFromPanel();
-
-  const fid = folderStack.length ? folderStack.at(-1).folder_id : null;
-  const [r, c] = selectedPos.split('_').map(Number);
-  const payload = { ...editBtn, position: selectedPos };
-  if (fid) payload.folder_id = fid;
-
-  // Save the head cell
-  const r1 = await POST(`/api/profiles/${activeProfileId}/buttons`, payload);
-  if (r1.error) { toast('Save failed: ' + (r1.error || 'unknown'), true); return; }
-
-  // Save SliderCell placeholders for the spanned cells
-  const size = editBtn.size || 3;
-  const isVert = (editBtn.orientation || 'vertical') === 'vertical';
-  for (let i = 1; i < size; i++) {
-    const occPos = isVert ? `${r + i}_${c}` : `${r}_${c + i}`;
-    const occ = {
-      position: occPos, kind: 'slider_cell',
-      parent_cell_id: r1.button_id || editBtn.cell_id || '',
-      parent_position: selectedPos,
-    };
-    if (fid) occ.folder_id = fid;
-    await POST(`/api/profiles/${activeProfileId}/buttons`, occ);
-  }
-
-  toast('Slider saved ✓');
-  await loadGrid();
-  document.querySelector(`[data-pos="${selectedPos}"]`)?.classList.add('selected');
+  // Re-select
+  const cell = document.querySelector(`[data-pos="${selectedPos}"]`);
+  cell?.classList.add('selected');
 }
 
 async function deleteCurrentButton() {
@@ -1856,6 +2090,52 @@ async function deleteCurrentButton() {
   if (!confirm('Delete this button?')) return;
   ctxPos = selectedPos;
   await window.ctxDelete();
+}
+
+async function saveSlider() {
+  if (!selectedPos) return;
+  collectSliderFromPanel();
+  const [rowStr, colStr] = selectedPos.split('_');
+  const row = parseInt(rowStr), col = parseInt(colStr);
+  const cfg = {
+    row, col,
+    slider_config: {
+      ...editSlider,
+      outputs: editSlider.outputs || [],
+    }
+  };
+  const fid = folderStack.length ? folderStack.at(-1).folder_id : null;
+  if (fid) cfg.slider_config.folder_id = fid;
+
+  // Use the create_slider action via the REST API for buttons
+  // Store as a button_type="slider" ActionButton directly
+  const size = editSlider.size || 3;
+  const headPayload = {
+    position: selectedPos,
+    button_type: 'slider',
+    slider_config: { ...editSlider, outputs: editSlider.outputs || [], size },
+    label: editSlider.label || 'Slider',
+    label_color: '#7c83fd',
+    background_color: '#000000',
+    program: [],
+  };
+  if (fid) headPayload.folder_id = fid;
+  await POST(`/api/profiles/${activeProfileId}/buttons`, headPayload);
+
+  // Occupied cells
+  for (let i = 1; i < size; i++) {
+    const occ = {
+      position: `${row+i}_${col}`,
+      button_type: 'slider_occupied',
+      slider_config: { parent_pos: selectedPos },
+      label: '', background_color: '#000000', program: [],
+    };
+    if (fid) occ.folder_id = fid;
+    await POST(`/api/profiles/${activeProfileId}/buttons`, occ);
+  }
+
+  toast('Slider saved ✓');
+  await loadGrid();
 }
 
 // ═══════════════════════════════════════════════════════════════════

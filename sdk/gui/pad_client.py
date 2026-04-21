@@ -85,26 +85,22 @@ html,body{height:100%;overflow:hidden;background:#0d0d1a;color:#e0e0e0;
 .slider-track-wrap{flex:1;display:flex;align-items:center;
   justify-content:center;width:100%;position:relative}
 /* ── Vertical slider ──────────────────────────────────────────────────────
-   A horizontal <input range> is rotated -90deg to appear vertical.
-   .vslider-wrap is the sizing container whose height = the full cell span.
-   The input is absolutely centred then rotated, so it fills the height
-   without being clipped.  touch-action:none is critical on mobile.      */
+   writing-mode:vertical-lr is unreliable on mobile (iOS Safari / Android Chrome
+   map touch events to the wrong axis and the thumb never moves).
+   The universally supported approach: render a normal horizontal range at a
+   fixed size, then rotate the whole element -90deg so it appears vertical.
+   The wrapper (.vslider-wrap) clips and centres the rotated input.        */
 .vslider-wrap{
-  position:relative;
-  flex:1;
-  width:100%;
-  min-height:40px;
+  flex:1;display:flex;align-items:center;justify-content:center;
+  width:100%;position:relative;overflow:hidden;
   touch-action:none}
 input[type=range].vslider{
-  position:absolute;
-  /* width (= visual track length) set to 100% of the wrapper's height via JS */
-  width:var(--vslider-h,120px);
-  height:24px;
-  top:50%;left:50%;
-  transform:translate(-50%,-50%) rotate(-90deg);
   -webkit-appearance:none;appearance:none;
+  /* Fixed width == the height we want when vertical; set by JS via --vslider-h */
+  width:var(--vslider-h,120px);height:24px;
+  transform:rotate(-90deg);
   background:transparent;cursor:pointer;
-  touch-action:none;pointer-events:auto;margin:0}
+  touch-action:none;pointer-events:auto}
 input[type=range].vslider::-webkit-slider-thumb{
   -webkit-appearance:none;width:28px;height:14px;
   background:#7c83fd;border-radius:4px;margin-top:-2px;
@@ -503,13 +499,13 @@ function renderGrid(buttons, subFolders, sliderCells) {
 function makeSliderButton(btn, cellSize, row, col) {
   const el = document.createElement('div');
   el.className = 'macro-btn is-slider';
-  el.dataset.buttonId = btn.button_id || btn.cell_id;
-  el.style.background = btn.background_color || '#0f1f3a';
-  el.style.borderColor = '#7c83fd55';
+  el.dataset.buttonId    = btn.button_id;
+  el.dataset.sliderVar   = btn.slider_variable || '';
+  el.style.background    = btn.background_color || '#0f1f3a';
+  el.style.borderColor   = '#7c83fd55';
 
-  // Accept both new clean names and old prefixed names for backward compat
-  const size        = parseInt(btn.size        ?? btn.slider_size        ?? 1);
-  const orientation = btn.orientation ?? btn.slider_orientation ?? 'vertical';
+  const size        = btn.slider_size || 1;
+  const orientation = btn.slider_orientation || 'vertical';
   const isVertical  = orientation === 'vertical';
 
   el.style.gridColumn = isVertical ? `${col + 1}` : `${col + 1} / span ${size}`;
@@ -555,15 +551,17 @@ function makeSliderButton(btn, cellSize, row, col) {
 
   if (isVertical) {
     input.className = 'vslider';
+    // The input is rotated -90deg, so its CSS width becomes the visual height.
+    // We set it to (cellSize × size + gaps) so it fills the full span.
     const GAP = 5;
-    // visualH = total pixel height the slider occupies (cell height × span + gaps)
     const visualH = cellSize * size + GAP * (size - 1);
+    input.style.setProperty('--vslider-h', visualH + 'px');
+    input.style.width = visualH + 'px';
 
+    // Wrap in a sizing container that clips the oversized rotated element
     const trackWrap = document.createElement('div');
     trackWrap.className = 'vslider-wrap';
-    // Height drives the track length via --vslider-h
-    trackWrap.style.height = visualH + 'px';
-    input.style.setProperty('--vslider-h', visualH + 'px');
+    trackWrap.style.flex = '1';
     trackWrap.appendChild(input);
     wrap.appendChild(trackWrap);
   } else {
@@ -601,6 +599,11 @@ function makeSliderButton(btn, cellSize, row, col) {
 }
 
 function makeButton(btn, cellSize) {
+  // If this button is configured as a slider, render as slider instead
+  if (btn.is_slider) {
+    return makeSliderButton(btn, cellSize);
+  }
+
   const el = document.createElement('div');
   el.className = 'macro-btn' +
     (btn.state ? ' state-on' : '') +

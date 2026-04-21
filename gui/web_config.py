@@ -55,66 +55,45 @@ async def _push_buttons_to_clients(profile_id: str) -> None:
         def _resolve_label(label: str) -> str:
             return render_label(label, VariableManager.get_value)
 
-        def _btn_payload(pos, btn) -> dict:
+        def _btn_payload(pos, cell) -> dict:
+            from macro_deck_python.models.action_button import (
+                ActionButton, ActionSlider, SliderCell)
             row, col = pos.split("_")
-            base = {
-                "button_id":   btn.button_id,
-                "position":    pos,
-                "row":         int(row),
-                "col":         int(col),
-            }
-            
-            # Skip buttons that are occupied by a new-style slider
-            if getattr(btn, "slider_parent_position", None):
-                return None  # Will be filtered out below
-            
-            # Check if this is a slider (new system or legacy)
-            is_slider = getattr(btn, "is_slider", False)
-            old_button_type = getattr(btn, "button_type", "button")
-            
-            if is_slider:
-                # New slider system
-                app = btn.resolve_appearance(VariableManager.get_value)
+            base = {"button_id": cell.cell_id, "position": pos,
+                    "row": int(row), "col": int(col)}
+
+            if isinstance(cell, SliderCell):
+                base["kind"] = "slider_cell"
+                return base
+
+            if isinstance(cell, ActionSlider):
                 base.update({
-                    "is_slider": True,
-                    "slider_size": getattr(btn, "slider_size", 1),
-                    "slider_orientation": getattr(btn, "slider_orientation", "vertical"),
-                    "slider_variable": getattr(btn, "slider_variable", ""),
+                    "kind": "slider",
+                    "size": cell.size, "orientation": cell.orientation,
+                    "variable": cell.variable,
+                    "min_value": cell.min_value, "max_value": cell.max_value,
+                    "step": cell.step, "initial": cell.initial,
+                    "label": _resolve_label(cell.label),
+                    "label_color": cell.label_color,
+                    "background_color": cell.background_color,
+                })
+                return base
+
+            if isinstance(cell, ActionButton):
+                app = cell.resolve_appearance(VariableManager.get_value)
+                base.update({
+                    "kind": "button",
                     "label": _resolve_label(app["label"]),
                     "label_color": app["label_color"],
-                    "label_font_size": btn.label_font_size,
-                    "icon": app["icon"],
-                    "background_color": app["background_color"],
-                    "has_actions": len(btn.program) > 0,
-                })
-            elif old_button_type == "slider":
-                # Legacy slider system (for backward compat)
-                sc = getattr(btn, "slider_config", {})
-                base.update({
-                    "button_type": "slider",
-                    "slider_config": sc,
-                    "label": _resolve_label(sc.get("label", "")),
-                    "label_color": btn.label_color,
-                })
-            elif old_button_type == "slider_occupied":
-                # Legacy slider occupied cell
-                base.update({
-                    "button_type": "slider_occupied",
-                    "slider_config": getattr(btn, "slider_config", {}),
-                })
-            else:
-                # Regular button
-                app = btn.resolve_appearance(VariableManager.get_value)
-                base.update({
-                    "label": _resolve_label(app["label"]),
-                    "label_color": app["label_color"],
-                    "label_font_size": btn.label_font_size,
+                    "label_font_size": cell.label_font_size,
                     "icon": app["icon"],
                     "background_color": app["background_color"],
                     "state": app["state"],
-                    "has_actions": len(btn.program) > 0,
+                    "has_actions": len(cell.program) > 0,
                 })
-            return base
+                return base
+
+            return None
 
         slider_cells: dict = {}
         for slider in folder.sliders.values():
@@ -615,8 +594,8 @@ async def api_info(request: web.Request) -> web.Response:
     from macro_deck_python.core.config_manager import ConfigManager
     return _json({
         "app": "macro_deck_python",
-        "ws_port": ConfigManager.get("port", 8191),
-        "http_port": ConfigManager.get("web_config_port", 8193),
+        "ws_port":   ConfigManager.get("port",            8191),
+        "http_port": ConfigManager.get("web_config_port", 8192),
     })
 
 
