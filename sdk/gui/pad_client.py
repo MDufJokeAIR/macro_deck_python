@@ -29,7 +29,7 @@ PAD_HTML = r"""<!DOCTYPE html>
 html,body{height:100%;overflow:hidden;background:#0d0d1a;color:#e0e0e0;
   font-family:system-ui,-apple-system,sans-serif;
   /* manipulation allows tap/double-tap but BLOCKS drag → never use on slider pages */
-  touch-action:manipulation}
+  touch-action:none}
 
 /* ── Status bar ── */
 #status-bar{display:flex;align-items:center;justify-content:space-between;
@@ -59,7 +59,7 @@ html,body{height:100%;overflow:hidden;background:#0d0d1a;color:#e0e0e0;
   gap:4px;cursor:pointer;padding:6px;overflow:hidden;position:relative;
   transition:transform .08s,background .1s,border-color .1s;user-select:none;
   -webkit-user-select:none;min-height:0}
-.macro-btn:active{transform:scale(.93)}
+.macro-btn:not(.is-slider):active{transform:scale(.93)}
 .macro-btn.state-on{background:#1e3a5f;border-color:#7c83fd}
 .macro-btn.has-actions{border-color:#2a3a5a}
 .macro-btn img.btn-icon{width:60%;height:60%;object-fit:contain;flex-shrink:0}
@@ -74,66 +74,37 @@ html,body{height:100%;overflow:hidden;background:#0d0d1a;color:#e0e0e0;
 
 /* ── Press ripple ── */
 .macro-btn::after{content:"";position:absolute;inset:0;border-radius:inherit;
-  background:#7c83fd22;opacity:0;transition:opacity .15s}
+  background:#7c83fd22;opacity:0;transition:opacity .15s;pointer-events:none}
 .macro-btn.pressed::after{opacity:1}
+.macro-btn.is-slider::after{display:none}
 
-/* ── Slider ── */
+/* ── Slider (fully custom div — no <input type=range>) ── */
 .slider-wrap{display:flex;flex-direction:column;align-items:center;
   height:100%;width:100%;gap:4px}
 .slider-label{font-size:.6rem;color:#7c83fd;text-align:center;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%}
-.slider-track-wrap{flex:1;display:flex;align-items:center;
-  justify-content:center;width:100%;position:relative}
-/* ── Vertical slider ──────────────────────────────────────────────────────
-   writing-mode:vertical-lr is unreliable on mobile (iOS Safari / Android Chrome
-   map touch events to the wrong axis and the thumb never moves).
-   The universally supported approach: render a normal horizontal range at a
-   fixed size, then rotate the whole element -90deg so it appears vertical.
-   The wrapper (.vslider-wrap) clips and centres the rotated input.        */
-.vslider-wrap{
+/* Track wrapper receives all pointer/touch events */
+.slider-track-wrap{
   flex:1;display:flex;align-items:center;justify-content:center;
-  width:100%;position:relative;overflow:hidden;
-  touch-action:none}
-input[type=range].vslider{
-  -webkit-appearance:none;appearance:none;
-  /* Fixed width == the height we want when vertical; set by JS via --vslider-h */
-  width:var(--vslider-h,120px);height:24px;
-  transform:rotate(-90deg);
-  background:transparent;cursor:pointer;
-  touch-action:none;pointer-events:auto}
-input[type=range].vslider::-webkit-slider-thumb{
-  -webkit-appearance:none;width:28px;height:14px;
-  background:#7c83fd;border-radius:4px;margin-top:-2px;
-  cursor:pointer;touch-action:none}
-input[type=range].vslider::-webkit-slider-runnable-track{
-  height:10px;border-radius:5px;
-  background:#1e2d4a;border:1px solid #7c83fd44}
-input[type=range].vslider::-moz-range-thumb{
-  width:28px;height:14px;background:#7c83fd;
-  border-radius:4px;border:none;cursor:pointer;touch-action:none}
-input[type=range].vslider::-moz-range-track{
-  height:10px;border-radius:5px;background:#1e2d4a}
-/* Horizontal slider */
-input[type=range].hslider{
-  -webkit-appearance:none;appearance:none;
-  width:100%;height:12px;
-  background:transparent;cursor:pointer;
-  vertical-align:middle;display:flex;align-items:center;
-  pointer-events:auto;touch-action:none}
-input[type=range].hslider::-webkit-slider-thumb{
-  -webkit-appearance:none;width:14px;height:28px;
-  background:#7c83fd;border-radius:4px;cursor:pointer;
-  margin-top:-9px;pointer-events:auto;touch-action:none}
-input[type=range].hslider::-webkit-slider-runnable-track{
-  height:10px;border-radius:5px;background:#1e2d4a;
-  border:1px solid #7c83fd44;margin:1px 0;pointer-events:auto}
-input[type=range].hslider::-moz-range-thumb{
-  width:14px;height:28px;background:#7c83fd;
-  border-radius:4px;border:none;cursor:pointer;
-  margin-top:-9px;pointer-events:auto;touch-action:none}
-input[type=range].hslider::-moz-range-track{
-  height:10px;border-radius:5px;background:#1e2d4a;
-  margin:1px 0;border:1px solid #7c83fd44;pointer-events:auto}
+  width:100%;position:relative;
+  touch-action:none;user-select:none;-webkit-user-select:none;cursor:pointer}
+/* Visible rail */
+.s-track{position:relative;background:#1e2d4a;border:1px solid #7c83fd44;
+  border-radius:6px;overflow:visible;flex-shrink:0}
+.s-track.vert {width:10px;height:100%}
+.s-track.horiz{height:10px;width:100%}
+/* Filled portion */
+.s-fill{position:absolute;background:#7c83fd88;border-radius:6px;pointer-events:none}
+.s-track.vert  .s-fill{bottom:0;left:0;width:100%;height:0}
+.s-track.horiz .s-fill{top:0;left:0;height:100%;width:0}
+/* Thumb */
+.s-thumb{position:absolute;background:#7c83fd;border-radius:5px;pointer-events:none;
+  box-shadow:0 0 6px #7c83fd88;transition:box-shadow .1s}
+.s-track.vert  .s-thumb{width:26px;height:12px;left:50%;bottom:0;
+  transform:translate(-50%,50%)}
+.s-track.horiz .s-thumb{width:12px;height:26px;top:50%;left:0;
+  transform:translate(-50%,-50%)}
+.slider-track-wrap:active .s-thumb{box-shadow:0 0 10px #7c83fdcc}
 .slider-value{font-size:.6rem;color:#9ca3af;font-variant-numeric:tabular-nums}
 
 /* ── Sub-folder button ── */
@@ -354,15 +325,11 @@ function handleMessage(msg) {
         }
       });
       // Update slider values if they bind to this variable
-      document.querySelectorAll('[data-slider-variable]').forEach(el => {
-        if (el.dataset.sliderVariable === msg.variable.name) {
-          const input = el.querySelector('input[type=range]');
-          if (input) {
-            const val = Math.max(0, Math.min(100, Number(msg.variable.value) || 0));
-            input.value = val;
-            const valEl = el.querySelector('.slider-value');
-            if (valEl) valEl.textContent = Math.round(val) + '%';
-          }
+      document.querySelectorAll('[data-slider-var],[data-slider-variable]').forEach(el => {
+        const vname = el.dataset.sliderVar || el.dataset.sliderVariable;
+        if (vname === msg.variable.name) {
+          const tw = el.querySelector('.slider-track-wrap');
+          if (tw && tw._setVal) tw._setVal(Number(msg.variable.value) || 0);
         }
       });
       break;
@@ -376,12 +343,8 @@ function handleMessage(msg) {
 
     case 'SLIDER_STATE':
       sliderValues[msg.slider_id] = msg.value;
-      const inp = document.querySelector(`[data-slider-id="${msg.slider_id}"] input`);
-      if (inp) {
-        inp.value = msg.value;
-        const valEl = inp.closest('.slider-wrap')?.querySelector('.slider-value');
-        if (valEl) valEl.textContent = formatSliderVal(msg.value);
-      }
+      { const tw = document.querySelector(`[data-slider-id="${msg.slider_id}"] .slider-track-wrap`);
+        if (tw && tw._setVal) tw._setVal(msg.value); }
       break;
 
     case 'SLIDER_ADDED':
@@ -486,117 +449,110 @@ function renderGrid(buttons, subFolders, sliderCells) {
     folderStack.length > 0 ? '' : 'none';
 }
 
-/**
- * Create a slider button element.
- * Renders a vertical or horizontal range input with label and value display.
- * Spans multiple cells if slider_size > 1.
- *
- * Vertical mode uses rotate(-90deg) on a fixed-width horizontal input — the only
- * approach that reliably maps touch events to the correct axis on iOS/Android.
- * writing-mode:vertical-lr was left in place for desktop-only reference but is
- * NOT used here because it breaks mobile touch handling.
- */
 function makeSliderButton(btn, cellSize, row, col) {
   const el = document.createElement('div');
   el.className = 'macro-btn is-slider';
-  el.dataset.buttonId    = btn.button_id;
-  el.dataset.sliderVar   = btn.slider_variable || '';
-  el.style.background    = btn.background_color || '#0f1f3a';
-  el.style.borderColor   = '#7c83fd55';
+  el.dataset.buttonId  = btn.button_id || btn.cell_id || '';
+  el.dataset.sliderVar = btn.variable || btn.slider_variable || '';
+  el.style.background  = btn.background_color || '#0f1f3a';
+  el.style.borderColor = '#7c83fd55';
 
-  const size        = btn.slider_size || 1;
-  const orientation = btn.slider_orientation || 'vertical';
+  const size        = btn.size || btn.slider_size || 1;
+  const orientation = btn.orientation || btn.slider_orientation || 'vertical';
   const isVertical  = orientation === 'vertical';
-
   el.style.gridColumn = isVertical ? `${col + 1}` : `${col + 1} / span ${size}`;
   el.style.gridRow    = isVertical ? `${row + 1} / span ${size}` : `${row + 1}`;
 
-  // ── value range ────────────────────────────────────────────────────
   const minVal  = parseFloat(btn.min_value  ?? btn.slider_min  ?? 0);
   const maxVal  = parseFloat(btn.max_value  ?? btn.slider_max  ?? 100);
   const stepVal = parseFloat(btn.step       ?? btn.slider_step ?? 1);
-  const varName = btn.variable || btn.slider_variable || '';  // Decide display precision from step: step=0.01 → 2 decimal places, step=1 → 0
-  const decimals = stepVal > 0 ? Math.max(0, -Math.floor(Math.log10(stepVal))) : 2;
+  const varName = btn.variable || btn.slider_variable || '';
+  const decimals = stepVal > 0 ? Math.max(0, -Math.floor(Math.log10(stepVal))) : 0;
   const initVal  = parseFloat(btn.initial ?? btn.slider_initial ?? ((minVal + maxVal) / 2));
+  const fmtVal = v => parseFloat(v).toFixed(decimals);
 
-  // ── wrapper ────────────────────────────────────────────────────────
   const wrap = document.createElement('div');
   wrap.className = 'slider-wrap';
-  wrap.style.flexDirection  = isVertical ? 'column' : 'row';
-  wrap.style.justifyContent = 'flex-start';
+  wrap.style.flexDirection = isVertical ? 'column' : 'row';
 
-  // ── label ──────────────────────────────────────────────────────────
   if (btn.label) {
-    const label = document.createElement('div');
-    label.className  = 'slider-label';
-    label.style.color = btn.label_color || '#7c83fd';
-    label.textContent = btn.label;
-    wrap.appendChild(label);
+    const lbl = document.createElement('div');
+    lbl.className  = 'slider-label';
+    lbl.style.color = btn.label_color || '#7c83fd';
+    lbl.textContent = btn.label;
+    wrap.appendChild(lbl);
   }
 
-  // ── value display ──────────────────────────────────────────────────
+  // Track wrapper (hit area)
+  const trackWrap = document.createElement('div');
+  trackWrap.className = 'slider-track-wrap';
+
+  // Rail
+  const track = document.createElement('div');
+  track.className = 's-track ' + (isVertical ? 'vert' : 'horiz');
+  if (isVertical) { track.style.height='100%'; track.style.width='10px'; }
+  else            { track.style.width='100%';  track.style.height='10px'; }
+
+  const fill  = document.createElement('div'); fill.className = 's-fill';
+  const thumb = document.createElement('div'); thumb.className = 's-thumb';
+  track.appendChild(fill);
+  track.appendChild(thumb);
+  trackWrap.appendChild(track);
+
   const valEl = document.createElement('div');
   valEl.className = 'slider-value';
 
-  const fmtVal = v => parseFloat(v).toFixed(decimals);
-  valEl.textContent = fmtVal(initVal);
+  let curVal = initVal;
+  const applyVal = v => {
+    curVal = Math.max(minVal, Math.min(maxVal, v));
+    const pct = (curVal - minVal) / (maxVal - minVal) * 100;
+    if (isVertical) { fill.style.height = pct+'%'; thumb.style.bottom = pct+'%'; }
+    else            { fill.style.width  = pct+'%'; thumb.style.left   = pct+'%'; }
+    valEl.textContent = fmtVal(curVal);
+  };
+  applyVal(initVal);
 
-  // ── track / input ──────────────────────────────────────────────────
-  const input = document.createElement('input');
-  input.type  = 'range';
-  input.min   = String(minVal);
-  input.max   = String(maxVal);
-  input.step  = String(stepVal);
-  input.value = String(initVal);
-
-  if (isVertical) {
-    input.className = 'vslider';
-    // The input is rotated -90deg, so its CSS width becomes the visual height.
-    // We set it to (cellSize × size + gaps) so it fills the full span.
-    const GAP = 5;
-    const visualH = cellSize * size + GAP * (size - 1);
-    input.style.setProperty('--vslider-h', visualH + 'px');
-    input.style.width = visualH + 'px';
-
-    // Wrap in a sizing container that clips the oversized rotated element
-    const trackWrap = document.createElement('div');
-    trackWrap.className = 'vslider-wrap';
-    trackWrap.style.flex = '1';
-    trackWrap.appendChild(input);
-    wrap.appendChild(trackWrap);
-  } else {
-    input.className = 'hslider';
-    const trackWrap = document.createElement('div');
-    trackWrap.className = 'slider-track-wrap';
-    trackWrap.style.flex = '1';
-    trackWrap.style.touchAction = 'none';
-    trackWrap.appendChild(input);
-    wrap.appendChild(trackWrap);
-  }
-
-  wrap.appendChild(valEl);
-  el.appendChild(wrap);
-
-  // ── events ─────────────────────────────────────────────────────────
-  const sendValue = () => {
-    const v = parseFloat(input.value);
-    valEl.textContent = fmtVal(v);
-    if (varName) {
-      send({ method: 'SET_VARIABLE', name: varName, value: v, type: 'Float' });
-    }
+  const sendVal = v => {
+    applyVal(v);
+    if (varName) send({ method:'SET_VARIABLE', name:varName, value:curVal, type:'Float' });
   };
 
-  // 'input'  fires continuously while dragging — update display + variable live
-  // 'change' fires on release (pointer up)     — guaranteed final send
-  input.addEventListener('input',  sendValue);
-  input.addEventListener('change', sendValue);
+  const computeVal = e => {
+    const rect = track.getBoundingClientRect();
+    const ratio = isVertical
+      ? 1 - Math.max(0, Math.min(1, (e.clientY - rect.top)  / rect.height))
+      :     Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    return minVal + ratio * (maxVal - minVal);
+  };
 
-  // Prevent the button-press ripple from triggering when touching the slider
+  trackWrap.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation();
+    trackWrap.setPointerCapture(e.pointerId);
+    sendVal(computeVal(e));
+  });
+  trackWrap.addEventListener('pointermove', e => {
+    if (!trackWrap.hasPointerCapture(e.pointerId)) return;
+    e.preventDefault();
+    sendVal(computeVal(e));
+  });
+  trackWrap.addEventListener('pointerup', e => {
+    if (trackWrap.hasPointerCapture(e.pointerId))
+      trackWrap.releasePointerCapture(e.pointerId);
+    sendVal(computeVal(e));
+  });
+
+  // Expose setter for external updates (VARIABLE_CHANGED / SLIDER_STATE)
+  trackWrap._setVal = applyVal;
+
+  wrap.appendChild(trackWrap);
+  wrap.appendChild(valEl);
+  el.appendChild(wrap);
+  // Block any stray pointer events on the container from bubbling as button presses
   el.addEventListener('pointerdown', e => e.stopPropagation());
   el.addEventListener('pointerup',   e => e.stopPropagation());
-
   return el;
 }
+
 
 function makeButton(btn, cellSize) {
   // If this button is configured as a slider, render as slider instead
@@ -668,9 +624,6 @@ function makeButton(btn, cellSize) {
 }
 
 function makeSliderCell(sliderId, row, col, height, sliderCells) {
-  // Find the slider definition — stored in the server's BUTTONS response
-  // We only have slider_id here; fetch full slider data from the last SLIDERS msg
-  // For now, use stored sliderValues and defaults
   const el = document.createElement('div');
   el.className = 'macro-btn is-slider';
   el.dataset.sliderId = sliderId;
@@ -680,63 +633,94 @@ function makeSliderCell(sliderId, row, col, height, sliderCells) {
   const wrap = document.createElement('div');
   wrap.className = 'slider-wrap';
 
-  const label = document.createElement('div');
-  label.className = 'slider-label';
-  label.textContent = '⎸';   // placeholder — updated when SLIDERS arrives
+  const lbl = document.createElement('div');
+  lbl.className = 'slider-label';
+  lbl.textContent = '⎸';
 
   const trackWrap = document.createElement('div');
   trackWrap.className = 'slider-track-wrap';
 
-  const input = document.createElement('input');
-  input.type  = 'range';
-  input.className = 'vslider';
-  input.min   = '0';
-  input.max   = '100';
-  input.step  = '1';
-  input.value = sliderValues[sliderId] ?? '50';
-
-  // Send SLIDER_CHANGE on input (continuous) and change (final)
-  const sendSlider = () => {
-    send({ method: 'SLIDER_CHANGE', slider_id: sliderId, value: parseFloat(input.value) });
-  };
-  input.addEventListener('input',  sendSlider);
-  input.addEventListener('change', sendSlider);
+  const track = document.createElement('div');
+  track.className = 's-track vert';
+  track.style.height = '100%'; track.style.width = '10px';
+  const fill  = document.createElement('div'); fill.className = 's-fill';
+  const thumb = document.createElement('div'); thumb.className = 's-thumb';
+  track.appendChild(fill); track.appendChild(thumb);
+  trackWrap.appendChild(track);
 
   const valEl = document.createElement('div');
   valEl.className = 'slider-value';
-  valEl.textContent = formatSliderVal(input.value);
-  input.addEventListener('input', () => { valEl.textContent = formatSliderVal(input.value); });
 
-  trackWrap.appendChild(input);
-  wrap.appendChild(label);
+  let sliderMin = 0, sliderMax = 100;
+  let curVal = parseFloat(sliderValues[sliderId] ?? 50);
+
+  const applyVal = v => {
+    curVal = Math.max(sliderMin, Math.min(sliderMax, v));
+    const pct = (curVal - sliderMin) / (sliderMax - sliderMin) * 100;
+    fill.style.height  = pct + '%';
+    thumb.style.bottom = pct + '%';
+    valEl.textContent  = formatSliderVal(curVal);
+  };
+  applyVal(curVal);
+  trackWrap._setVal = applyVal;
+
+  const sendSlider = v => {
+    applyVal(v);
+    send({ method:'SLIDER_CHANGE', slider_id:sliderId, value:curVal });
+  };
+  const computeVal = e => {
+    const rect = track.getBoundingClientRect();
+    const ratio = 1 - Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    return sliderMin + ratio * (sliderMax - sliderMin);
+  };
+
+  trackWrap.addEventListener('pointerdown', e => {
+    e.preventDefault(); trackWrap.setPointerCapture(e.pointerId);
+    sendSlider(computeVal(e));
+  });
+  trackWrap.addEventListener('pointermove', e => {
+    if (!trackWrap.hasPointerCapture(e.pointerId)) return;
+    e.preventDefault(); sendSlider(computeVal(e));
+  });
+  trackWrap.addEventListener('pointerup', e => {
+    if (trackWrap.hasPointerCapture(e.pointerId)) trackWrap.releasePointerCapture(e.pointerId);
+    sendSlider(computeVal(e));
+  });
+
+  wrap.appendChild(lbl);
   wrap.appendChild(trackWrap);
   wrap.appendChild(valEl);
   el.appendChild(wrap);
+  el.addEventListener('pointerdown', e => e.stopPropagation());
+  el.addEventListener('pointerup',   e => e.stopPropagation());
 
-  // Fetch full slider details to fill in label/range
-  fetchSliderDetails(sliderId, el, input, label, valEl);
-
+  fetchSliderDetails(sliderId, lbl, valEl, (mn, mx, initV, color) => {
+    sliderMin = mn; sliderMax = mx;
+    thumb.style.background = color;
+    fill.style.background  = color + '88';
+    applyVal(initV);
+  });
   return el;
 }
 
-function fetchSliderDetails(sliderId, el, input, labelEl, valEl) {
+function fetchSliderDetails(sliderId, labelEl, valEl, onLoaded) {
   if (!activeProfileId) return;
   fetch(`/api/profiles/${activeProfileId}/sliders`)
     .then(r => r.json())
     .then(sliders => {
       const s = sliders.find(x => x.slider_id === sliderId);
       if (!s) return;
-      input.min   = String(s.min_value ?? 0);
-      input.max   = String(s.max_value ?? 100);
-      input.step  = String(s.step      ?? 1);
-      input.value = String(s.current_value ?? s.initial_value ?? 50);
-      input.style.accentColor  = s.track_color  || '#7c83fd';
-      labelEl.textContent      = s.label || '⎸';
-      labelEl.style.color      = s.label_color  || '#7c83fd';
-      valEl.textContent        = formatSliderVal(input.value);
+      labelEl.textContent = s.label || '⎸';
+      labelEl.style.color = s.label_color || '#7c83fd';
+      if (onLoaded) onLoaded(
+        s.min_value ?? 0, s.max_value ?? 100,
+        s.current_value ?? s.initial_value ?? 50,
+        s.track_color || '#7c83fd'
+      );
     })
     .catch(() => {});
 }
+
 
 function formatSliderVal(v) {
   const n = parseFloat(v);
