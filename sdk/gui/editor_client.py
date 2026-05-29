@@ -475,6 +475,16 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
                    oninput="debounceSave()" style="width:100%">
           </div>
         </div>
+
+        <div class="field" style="margin-top:8px">
+          <label style="margin-bottom:4px">Outputs</label>
+          <div id="slider-outputs" style="display:flex;flex-direction:column;gap:6px"></div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:4px"
+                  onclick="addSliderOutput()">+ Add output</button>
+          <div style="font-size:.7rem;color:var(--muted);margin-top:3px">
+            Add Variable, Gamepad (ViGEm) or vJoy (HOTAS) outputs.
+          </div>
+        </div>
       </div>
 
       <!-- Legacy Slider Settings (hidden by default) -->
@@ -525,9 +535,6 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
           <label>Height (rows)</label>
           <input type="number" id="sl-size" min="1" max="10" value="3">
         </div>
-        <h3 style="margin:12px 0 8px 0; font-size:.9rem">Outputs</h3>
-        <div id="slider-outputs" style="display:flex;flex-direction:column;gap:6px"></div>
-        <button class="btn btn-ghost btn-sm" onclick="addSliderOutput()">+ Add output</button>
       </div>
 
       <button class="btn btn-primary" style="margin-top:8px"
@@ -1103,6 +1110,7 @@ function collectSliderFromPanel() {
     editBtn.max_value         = parseFloat(document.getElementById('f-slider-max').value)     ?? 1;
     editBtn.step        = parseFloat(document.getElementById('f-slider-step').value)    ?? 0.01;
     editBtn.initial     = parseFloat(document.getElementById('f-slider-initial').value) ?? 0;
+    editBtn.outputs     = editBtn.outputs || [];
   } else {
     editBtn.kind = 'button';
     editBtn.size        = 1;
@@ -1920,8 +1928,10 @@ function renderSliderOutputs(outputs) {
         <select onchange="changeOutputType(${i},this.value)" style="background:var(--surface3);
           color:var(--text);border:1px solid var(--border);border-radius:5px;
           padding:4px 8px;font-size:.8rem">
-          <option value="variable"  ${type==='variable' ?'selected':''}>Variable</option>
-          <option value="threshold" ${type==='threshold'?'selected':''}>Key Threshold</option>
+          <option value="variable"  ${type==='variable'    ?'selected':''}>Variable</option>
+          <option value="threshold" ${type==='threshold'  ?'selected':''}>Key Threshold</option>
+          <option value="gamepad_axis" ${type==='gamepad_axis'?'selected':''}>🎮 Gamepad Axis</option>
+          <option value="vjoy_axis" \${type==='vjoy_axis'?'selected':''}>🕹 vJoy Axis (HOTAS/Throttle)</option>
         </select>
         <button class="action-del" onclick="removeSliderOutput(${i})">✕</button>
       </div>
@@ -1954,6 +1964,75 @@ function renderOutputConfig(out, i) {
         ${zones.length} zone(s) configured
         <button class="btn btn-ghost btn-sm" style="margin-left:4px"
           onclick="editThresholds(${i})">Edit zones</button>
+      </div>`;
+  }
+  if (out.type === 'gamepad_axis') {
+    const axes = [
+      ['left_x','Left Stick X'], ['left_y','Left Stick Y'],
+      ['right_x','Right Stick X'], ['right_y','Right Stick Y'],
+      ['trigger_l','Left Trigger'], ['trigger_r','Right Trigger'],
+    ];
+    const axisOpts = axes.map(([v,l]) =>
+      `<option value="${v}" ${(out.axis||'left_x')===v?'selected':''}>${l}</option>`
+    ).join('');
+    return `
+      <div class="field">
+        <label>Axis</label>
+        <select onchange="updateOutputCfg(${i},'axis',this.value)"
+          style="background:var(--surface3);color:var(--text);border:1px solid var(--border);
+                 border-radius:5px;padding:4px 8px;font-size:.8rem">
+          ${axisOpts}
+        </select>
+      </div>
+      <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+        <label style="margin:0">Invert</label>
+        <input type="checkbox" ${out.invert?'checked':''}
+          onchange="updateOutputCfg(${i},'invert',this.checked)">
+        <label style="margin:0 0 0 12px">Deadzone</label>
+        <input type="number" value="${out.deadzone??0.05}" min="0" max="0.5" step="0.01"
+          style="width:60px" onchange="updateOutputCfg(${i},'deadzone',parseFloat(this.value))">
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:4px;line-height:1.4">
+        ⚠ Requires <b>ViGEm Bus</b> driver + <code>pip install vgamepad</code> on Windows.
+        Slider 0–100 maps to full axis range. Joystick axes use −1…+1; triggers use 0…1.
+      </div>`;
+  }
+  if (out.type === 'vjoy_axis') {
+    const axes = ['X','Y','Z','Rx','Ry','Rz','Slider0','Slider1'];
+    const axisOpts = axes.map(a =>
+      `<option value="${a}" ${(out.axis||'Slider0')===a?'selected':''}>${a}</option>`
+    ).join('');
+    return `
+      <div class="field" style="display:flex;gap:8px">
+        <div style="flex:1">
+          <label>Device #</label>
+          <input type="number" value="${out.device??1}" min="1" max="16" style="width:100%"
+            onchange="updateOutputCfg(${i},'device',parseInt(this.value))">
+        </div>
+        <div style="flex:2">
+          <label>Axis</label>
+          <select onchange="updateOutputCfg(${i},'axis',this.value)"
+            style="width:100%;background:var(--surface3);color:var(--text);
+                   border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:.8rem">
+            ${axisOpts}
+          </select>
+        </div>
+      </div>
+      <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+        <label style="margin:0">Invert</label>
+        <input type="checkbox" ${out.invert?'checked':''}
+          onchange="updateOutputCfg(${i},'invert',this.checked)">
+        <label style="margin:0 0 0 12px">Range</label>
+        <input type="number" value="${out.range_lo??0}" min="0" max="1" step="0.01"
+          style="width:52px" onchange="updateOutputCfg(${i},'range_lo',parseFloat(this.value))">
+        <span>–</span>
+        <input type="number" value="${out.range_hi??1}" min="0" max="1" step="0.01"
+          style="width:52px" onchange="updateOutputCfg(${i},'range_hi',parseFloat(this.value))">
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:4px;line-height:1.5">
+        🕹 Requires <b>vJoy driver</b> + <code>pip install pyvjoy</code> on Windows.<br>
+        Use <b>Z / Slider0 / Slider1</b> for throttle, mixture, prop pitch.<br>
+        Configure enabled axes in the vJoy "Configure vJoy" app first.
       </div>`;
   }
   return '';

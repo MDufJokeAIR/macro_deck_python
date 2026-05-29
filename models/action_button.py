@@ -307,13 +307,14 @@ class ActionSlider(ActionInterface):
     max_value:   float = 1.0
     step:        float = 0.01
     initial:     float = 0.0
+    outputs:     list  = field(default_factory=list)  # [{type, ...}, ...]
 
     def to_dict(self) -> dict:
         d = self._base_dict()
         d.update({"size": self.size, "orientation": self.orientation,
                    "variable": self.variable, "min_value": self.min_value,
                    "max_value": self.max_value, "step": self.step,
-                   "initial": self.initial})
+                   "initial": self.initial, "outputs": self.outputs})
         return d
 
     @staticmethod
@@ -338,6 +339,7 @@ class ActionSlider(ActionInterface):
             max_value        = float(d.get("max_value") or d.get("slider_max") or 1.0),
             step             = float(d.get("step") or d.get("slider_step") or 0.01),
             initial          = float(d.get("initial") or d.get("slider_initial") or 0.0),
+            outputs          = d.get("outputs") or [],
         )
 
 

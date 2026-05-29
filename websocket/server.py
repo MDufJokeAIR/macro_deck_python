@@ -141,6 +141,7 @@ class MacroDeckServer:
             "SET_PROFILE":           self._on_set_profile,
             "GET_VARIABLES":         self._on_get_variables,
             "SET_VARIABLE":          self._on_set_variable,
+            "SLIDER_VALUE":           self._on_slider_value,
             "GET_CONNECTED_CLIENTS": self._on_get_connected_clients,
             "PING":                  self._on_ping,
             "GET_SLIDERS":           self._on_get_sliders,
@@ -247,6 +248,98 @@ class MacroDeckServer:
             vtype = VariableType.STRING
         VariableManager.set_value(name, value, vtype, plugin_id=None, save=True)
 
+    async def _on_slider_value(self, info: ClientInfo, msg: dict) -> None:
+        """
+        Handles SLIDER_VALUE messages sent by ActionSlider buttons on the pad.
+        Dispatches the value to all configured output backends (variable,
+        gamepad_axis, vjoy_axis, etc.) using SliderEngine.
+        """
+        from macro_deck_python.plugins.builtin.analog_slider.analog_output import SliderEngine
+
+        button_id = msg.get("button_id", "")
+        raw_value = msg.get("value")
+
+        # Hard print — visible even if logging is misconfigured
+        print(f"[SLIDER_VALUE] button={button_id[:8] if button_id else '?'} value={raw_value}", flush=True)
+
+        if raw_value is None or not button_id:
+            print("[SLIDER_VALUE] missing button_id or value", flush=True)
+            logger.warning("SLIDER_VALUE missing button_id or value: %s", msg)
+            return
+        try:
+            value = float(raw_value)
+        except (TypeError, ValueError):
+            logger.warning("SLIDER_VALUE bad value: %r", raw_value)
+            return
+
+        # Find the ActionSlider in the active profile
+        profile = ProfileManager.get_client_profile(info.client_id)
+        if profile is None:
+            print(f"[SLIDER_VALUE] no profile for client {info.client_id}", flush=True)
+            logger.warning("SLIDER_VALUE: no profile for client %s", info.client_id)
+            return
+
+        def _find(folder):
+            # folder.buttons is keyed by grid position ("row_col"), not cell_id.
+            # Must search values for the matching cell_id.
+            for cell in folder.buttons.values():
+                if getattr(cell, "cell_id", None) == button_id:
+                    return cell
+            for sf in folder.sub_folders:
+                r = _find(sf)
+                if r: return r
+            return None
+
+        cell = _find(profile.folder)
+
+        if cell is None:
+            actual_ids = [getattr(c, "cell_id", "?") for c in profile.folder.buttons.values()]
+            print(f"[SLIDER_VALUE] button_id {button_id[:8]} NOT FOUND. cell_ids in profile: {actual_ids[:8]}", flush=True)
+            logger.warning("SLIDER_VALUE: button_id %s not found in profile", button_id)
+            return
+
+        outputs = getattr(cell, "outputs", None)
+        print(f"[SLIDER_VALUE] cell={type(cell).__name__} outputs={outputs!r}", flush=True)
+        if not outputs:
+            # No outputs configured — log once per button then fall silent
+            if not getattr(cell, "_warned_no_outputs", False):
+                logger.warning(
+                    "SLIDER_VALUE: button %s has no outputs configured. "
+                    "Open the editor → Slider tab → Add output to configure vJoy/gamepad/variable.",
+                    button_id[:8]
+                )
+                cell._warned_no_outputs = True
+            print("[SLIDER_VALUE] No outputs — add one in editor Slider tab", flush=True)
+            return
+
+        logger.debug("SLIDER_VALUE button=%s value=%.2f outputs=%s",
+                     button_id[:8], value, [o.get("type") for o in outputs])
+
+        # Use a per-button SliderEngine cached on the cell.
+        # Only rebuild when the outputs list has actually changed.
+        engine = getattr(cell, "_engine", None)
+        cached_outputs = getattr(cell, "_engine_outputs_snapshot", None)
+        if engine is None or cached_outputs != outputs:
+            if engine is not None:
+                engine.stop()
+            engine = SliderEngine(cell)
+            cell._engine = engine
+            cell._engine_outputs_snapshot = list(outputs)
+            logger.info("SliderEngine (re)built for button %s — outputs: %s",
+                        button_id[:8], [o.get("type") for o in outputs])
+
+        old = getattr(cell, "_last_value", value)
+        cell._last_value = value
+        engine.on_value_change(value, old)
+
+        # Broadcast VARIABLE_CHANGED so other clients' UI updates
+        if getattr(cell, "variable", None):
+            await self._broadcast(
+                encode("VARIABLE_CHANGED",
+                       variable={"name": cell.variable,
+                                 "value": value,
+                                 "type": "Float"}))
+
     async def _on_get_connected_clients(self, info: ClientInfo, msg: dict) -> None:
         clients = [{"client_id": c.client_id, "device_type": c.device_type}
                    for c in self._clients.values()]
@@ -291,6 +384,7 @@ class MacroDeckServer:
                     "max_value":   cell.max_value,
                     "step":        cell.step,
                     "initial":     cell.initial,
+                    "outputs":     cell.outputs,
                     "label":       _resolve_label(cell.label),
                     "label_color": cell.label_color,
                     "background_color": cell.background_color,

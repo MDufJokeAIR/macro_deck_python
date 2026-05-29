@@ -168,6 +168,81 @@ class KeyboardThresholdOutput(AnalogOutput):
         self._active_zone = None
 
 
+
+# ── SliderEngine ──────────────────────────────────────────────────────────────
+
+class SliderEngine:
+    """
+    Drives all outputs for one ActionSlider or SliderWidget.
+
+    Wraps multiple AnalogOutput backends (variable, threshold, gamepad_axis,
+    vjoy_axis) and dispatches value changes to each in turn.
+
+    Used by SliderManager (legacy SliderWidget) and by _on_slider_value
+    in the WebSocket server (ActionSlider / new-style button sliders).
+    """
+
+    def __init__(self, slider_obj) -> None:
+        """
+        slider_obj: ActionSlider  or  SliderWidget — anything with:
+            .min_value, .max_value, .current_value (mutable), .outputs (list)
+        For ActionSlider 'slider' attr is the object itself.
+        """
+        self._slider   = slider_obj
+        self._backends: list = []   # (AnalogOutput instance, config dict)
+        self._rebuild_backends()
+
+    @property
+    def slider(self):
+        return self._slider
+
+    def _rebuild_backends(self) -> None:
+        for backend, _ in self._backends:
+            try: backend.cleanup()
+            except Exception: pass
+        self._backends = []
+
+        outputs = getattr(self._slider, "outputs", []) or []
+        for cfg in outputs:
+            otype = cfg.get("type", "variable")
+            backend = make_output(otype)
+            if backend is not None:
+                self._backends.append((backend, cfg))
+
+        # Legacy SliderWidget compat: if no outputs list but has variable_name
+        if not outputs and hasattr(self._slider, "variable_name") and self._slider.variable_name:
+            backend = make_output("variable")
+            if backend:
+                self._backends.append((backend, {
+                    "type": "variable",
+                    "variable_name": self._slider.variable_name,
+                    "variable_type": getattr(self._slider, "variable_type", "Float"),
+                }))
+
+    def on_value_change(self, new_value: float, old_value: float) -> None:
+        mn = self._slider.min_value
+        mx = self._slider.max_value
+        raw = max(mn, min(mx, new_value))
+        self._slider.current_value = raw
+        span = mx - mn
+        normalised = (raw - mn) / span if span else 0.0
+        for backend, cfg in self._backends:
+            try:
+                backend.apply(raw, normalised, cfg)
+            except Exception as exc:
+                logger.error("Output %s error: %s", type(backend).__name__, exc)
+
+    def stop(self) -> None:
+        for backend, _ in self._backends:
+            try: backend.cleanup()
+            except Exception: pass
+        self._backends.clear()
+
+    def reload(self) -> None:
+        """Re-read outputs list from slider object (call after config change)."""
+        self.stop()
+        self._rebuild_backends()
+
 # ── Factory ───────────────────────────────────────────────────────────
 
 _OUTPUT_REGISTRY: Dict[str, type] = {
@@ -176,8 +251,34 @@ _OUTPUT_REGISTRY: Dict[str, type] = {
 }
 
 
+def _get_gamepad_cls():
+    """Lazy import so missing vgamepad never breaks startup."""
+    try:
+        from macro_deck_python.plugins.builtin.analog_slider.gamepad_output import GamepadAxisOutput
+        return GamepadAxisOutput
+    except Exception as exc:
+        logger.warning("gamepad_axis unavailable: %s", exc)
+        return None
+
+
+def _get_vjoy_cls():
+    """Lazy import so missing pyvjoy never breaks startup."""
+    try:
+        from macro_deck_python.plugins.builtin.analog_slider.vjoy_output import VJoyAxisOutput
+        return VJoyAxisOutput
+    except Exception as exc:
+        logger.warning("vjoy_axis unavailable: %s", exc)
+        return None
+
+
 def make_output(output_type: str) -> Optional[AnalogOutput]:
     """Instantiate an AnalogOutput by type name."""
+    if output_type == "gamepad_axis":
+        cls = _get_gamepad_cls()
+        return cls() if cls else None
+    if output_type == "vjoy_axis":
+        cls = _get_vjoy_cls()
+        return cls() if cls else None
     cls = _OUTPUT_REGISTRY.get(output_type)
     if cls is None:
         logger.warning("Unknown output type: %r", output_type)

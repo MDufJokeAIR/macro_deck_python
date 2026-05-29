@@ -37,13 +37,13 @@ class SliderManager:
         Start tracking a slider and create its AnalogOutput engine.
         Safe to call on an already-registered slider (re-initialises it).
         """
-        from macro_deck_python.plugins.builtin.analog_slider.analog_output import AnalogOutput
+        from macro_deck_python.plugins.builtin.analog_slider.analog_output import SliderEngine
         with cls._lock:
             # Tear down old engine if replacing
             old = cls._outputs.pop(slider.slider_id, None)
             if old:
                 old.stop()
-            engine = AnalogOutput(slider)
+            engine = SliderEngine(slider)
             cls._outputs[slider.slider_id] = engine
             logger.info("Registered slider %s (mode=%s)", slider.label, slider.mode)
 

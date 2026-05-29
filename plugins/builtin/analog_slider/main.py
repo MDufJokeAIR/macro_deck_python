@@ -506,6 +506,18 @@ class Main(PluginBase):
         # Unregister every slider from the registry
         for sid in SliderRegistry.all_slider_ids():
             SliderRegistry.unregister(sid)
+        # Release the virtual gamepad (no-op if never created)
+        try:
+            from macro_deck_python.plugins.builtin.analog_slider.gamepad_output import shutdown_device
+            shutdown_device()
+        except Exception:
+            pass
+        # Release all vJoy devices (no-op if never created)
+        try:
+            from macro_deck_python.plugins.builtin.analog_slider.vjoy_output import shutdown_vjoy
+            shutdown_vjoy()
+        except Exception:
+            pass
         logger.info("Analog Slider plugin disabled")
 
 

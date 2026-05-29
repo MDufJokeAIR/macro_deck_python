@@ -514,7 +514,13 @@ function makeSliderButton(btn, cellSize, row, col) {
 
   const sendVal = v => {
     applyVal(v);
-    if (varName) send({ method:'SET_VARIABLE', name:varName, value:curVal, type:'Float' });
+    const bid = btn.button_id || btn.cell_id || '';
+    const hasOutputs = Array.isArray(btn.outputs) && btn.outputs.length > 0;
+    if (hasOutputs && bid) {
+      send({ method: 'SLIDER_VALUE', button_id: bid, value: curVal });
+    } else if (varName) {
+      send({ method: 'SET_VARIABLE', name: varName, value: curVal, type: 'Float' });
+    }
   };
 
   const computeVal = e => {

@@ -1,0 +1,12 @@
+# Analog Slider plugin dependencies
+
+# Virtual Xbox 360 / DualShock 4 gamepad (XInput games, general use)
+# Requires the ViGEm Bus driver on Windows:
+#   https://github.com/nefarius/ViGEmBus/releases
+vgamepad>=0.1.0
+
+# Virtual DirectInput joystick (flight sims, HOTAS, throttle modules)
+# Requires the vJoy driver on Windows:
+#   https://github.com/jshafer817/vJoy/releases
+#   Then open "Configure vJoy" and enable the axes you need.
+pyvjoy>=1.0.1

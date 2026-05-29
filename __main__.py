@@ -101,6 +101,16 @@ async def _main_async(args: argparse.Namespace) -> None:
     log_level = getattr(args, "log_level", None) or ConfigManager.get("log_level", "INFO")
     logging.getLogger().setLevel(log_level)
 
+    # Always show DEBUG for slider/vjoy/gamepad output chain so problems are visible
+    for _slider_logger in (
+        "plugin.analog_slider.output",
+        "plugin.analog_slider.vjoy",
+        "plugin.analog_slider.gamepad",
+        "plugin.analog_slider.manager",
+        "macro_deck.websocket",
+    ):
+        logging.getLogger(_slider_logger).setLevel(logging.DEBUG)
+
     port        = ConfigManager.get("port",           8191)
     config_port = ConfigManager.get("web_config_port", 8193)
     host        = ConfigManager.get("host",           "0.0.0.0")

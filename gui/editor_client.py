@@ -491,6 +491,11 @@ h3{font-size:.8rem;color:var(--accent);text-transform:uppercase;
                  oninput="debounceSave()" style="width:100%">
         </div>
       </div>
+      <div class="field" style="margin-top:6px">
+        <label style="margin-bottom:4px">Outputs</label>
+        <div id="slider-outputs" style="display:flex;flex-direction:column;gap:6px"></div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:4px" onclick="addSliderOutput()">+ Add output</button>
+      </div>
       <button class="btn btn-primary" onclick="saveSlider()">Save slider</button>
       <button class="btn btn-sm" style="background:var(--danger);color:#fff;margin-top:4px"
               onclick="deleteCurrentButton()">🗑 Delete slider</button>
@@ -912,6 +917,8 @@ async function populateSliderPanel(btn) {
   document.getElementById('f-slider-initial').value     = btn.initial ?? btn.slider_initial ?? 0;
   await updateSliderVariableList();
   onSliderSizeChange();
+
+  renderSliderOutputs(btn.outputs || []);
 }
 
 function setColor(id, hex) {
@@ -1036,6 +1043,152 @@ function collectStyleFromPanel() {
   editBtn.state_binding    = document.getElementById('f-state-bind').value || null;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+// Slider output management (Variable / Gamepad Axis)
+// ═══════════════════════════════════════════════════════════════════
+function renderSliderOutputs(outputs) {
+  const wrap = document.getElementById('slider-outputs');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  (outputs || []).forEach((out, i) => {
+    const d = document.createElement('div');
+    d.className = 'output-item';
+    const type = out.type || 'variable';
+    d.innerHTML = `
+      <div class="output-header">
+        <select onchange="changeOutputType(${i},this.value)" style="background:var(--surface3);
+          color:var(--text);border:1px solid var(--border);border-radius:5px;
+          padding:4px 8px;font-size:.8rem">
+          <option value="variable"     ${type==='variable'    ?'selected':''}>Variable</option>
+          <option value="threshold"    ${type==='threshold'   ?'selected':''}>Key Threshold</option>
+          <option value="gamepad_axis" ${type==='gamepad_axis'?'selected':''}>🎮 Gamepad Axis</option>
+          <option value="vjoy_axis" \${type==='vjoy_axis'?'selected':''}>🕹 vJoy Axis (HOTAS/Throttle)</option>
+        </select>
+        <button class="action-del" onclick="removeSliderOutput(${i})">✕</button>
+      </div>
+      <div id="out-cfg-${i}">${renderOutputConfig(out, i)}</div>`;
+    wrap.appendChild(d);
+  });
+}
+
+function renderOutputConfig(out, i) {
+  if (out.type === 'variable' || !out.type) {
+    return `
+      <div class="field">
+        <label>Variable name</label>
+        <input type="text" value="${out.variable_name||''}"
+          onchange="updateOutputCfg(${i},'variable_name',this.value)"
+          placeholder="e.g. master_volume">
+      </div>
+      <div class="field">
+        <label>Type</label>
+        <select onchange="updateOutputCfg(${i},'variable_type',this.value)">
+          ${['Float','Integer','String','Bool'].map(t =>
+            `<option ${(out.variable_type||'Float')===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>`;
+  }
+  if (out.type === 'threshold') {
+    const zones = out.thresholds || [];
+    return `<div style="font-size:.75rem;color:var(--muted);margin-bottom:4px">
+      ${zones.length} zone(s) configured</div>`;
+  }
+  if (out.type === 'gamepad_axis') {
+    const axes = [
+      ['left_x','Left Stick X'], ['left_y','Left Stick Y'],
+      ['right_x','Right Stick X'], ['right_y','Right Stick Y'],
+      ['trigger_l','Left Trigger'], ['trigger_r','Right Trigger'],
+    ];
+    const axisOpts = axes.map(([v,l]) =>
+      `<option value="${v}" ${(out.axis||'left_x')===v?'selected':''}>${l}</option>`
+    ).join('');
+    return `
+      <div class="field">
+        <label>Axis</label>
+        <select onchange="updateOutputCfg(${i},'axis',this.value)"
+          style="background:var(--surface3);color:var(--text);border:1px solid var(--border);
+                 border-radius:5px;padding:4px 8px;font-size:.8rem">
+          ${axisOpts}
+        </select>
+      </div>
+      <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+        <label style="margin:0">Invert</label>
+        <input type="checkbox" ${out.invert?'checked':''}
+          onchange="updateOutputCfg(${i},'invert',this.checked)">
+        <label style="margin:0 0 0 12px">Deadzone</label>
+        <input type="number" value="${out.deadzone??0.05}" min="0" max="0.5" step="0.01"
+          style="width:60px" onchange="updateOutputCfg(${i},'deadzone',parseFloat(this.value))">
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:4px;line-height:1.4">
+        Requires ViGEm Bus driver + pip install vgamepad on Windows.
+        Slider 0-100 maps to full axis range.
+      </div>`;
+  }
+  if (out.type === 'vjoy_axis') {
+    const axes = ['X','Y','Z','Rx','Ry','Rz','Slider0','Slider1'];
+    const axisOpts = axes.map(a =>
+      `<option value="${a}" ${(out.axis||'Slider0')===a?'selected':''}>${a}</option>`
+    ).join('');
+    return `
+      <div class="field" style="display:flex;gap:8px">
+        <div style="flex:1">
+          <label>Device #</label>
+          <input type="number" value="${out.device??1}" min="1" max="16" style="width:100%"
+            onchange="updateOutputCfg(${i},'device',parseInt(this.value))">
+        </div>
+        <div style="flex:2">
+          <label>Axis</label>
+          <select onchange="updateOutputCfg(${i},'axis',this.value)"
+            style="width:100%;background:var(--surface3);color:var(--text);
+                   border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:.8rem">
+            ${axisOpts}
+          </select>
+        </div>
+      </div>
+      <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+        <label style="margin:0">Invert</label>
+        <input type="checkbox" ${out.invert?'checked':''}
+          onchange="updateOutputCfg(${i},'invert',this.checked)">
+        <label style="margin:0 0 0 12px">Range</label>
+        <input type="number" value="${out.range_lo??0}" min="0" max="1" step="0.01"
+          style="width:52px" onchange="updateOutputCfg(${i},'range_lo',parseFloat(this.value))">
+        <span>–</span>
+        <input type="number" value="${out.range_hi??1}" min="0" max="1" step="0.01"
+          style="width:52px" onchange="updateOutputCfg(${i},'range_hi',parseFloat(this.value))">
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:4px;line-height:1.5">
+        🕹 Requires <b>vJoy driver</b> + <code>pip install pyvjoy</code> on Windows.<br>
+        Use <b>Z / Slider0 / Slider1</b> for throttle, mixture, prop pitch.<br>
+        Configure enabled axes in the vJoy "Configure vJoy" app first.
+      </div>`;
+  }
+  return '';
+}
+
+window.changeOutputType = function(i, type) {
+  if (!editBtn) return;
+  editBtn.outputs = editBtn.outputs || [];
+  editBtn.outputs[i] = { type };
+  renderSliderOutputs(editBtn.outputs);
+};
+window.updateOutputCfg = function(i, key, val) {
+  if (!editBtn) return;
+  editBtn.outputs = editBtn.outputs || [];
+  editBtn.outputs[i] = { ...(editBtn.outputs[i]||{}), [key]: val };
+};
+window.removeSliderOutput = function(i) {
+  if (!editBtn) return;
+  editBtn.outputs.splice(i, 1);
+  renderSliderOutputs(editBtn.outputs);
+};
+window.addSliderOutput = function() {
+  if (!editBtn) editBtn = {};
+  editBtn.outputs = editBtn.outputs || [];
+  editBtn.outputs.push({ type: 'variable', variable_name: '', variable_type: 'Float' });
+  renderSliderOutputs(editBtn.outputs);
+};
+
 function collectSliderFromPanel() {
   if (!editBtn) return;
   editBtn.label            = document.getElementById('f-sl-label').value;
@@ -1049,6 +1202,7 @@ function collectSliderFromPanel() {
   editBtn.step             = parseFloat(document.getElementById('f-slider-step').value) || 0.01;
   editBtn.initial          = parseFloat(document.getElementById('f-slider-initial').value) || 0;
   editBtn.kind             = 'slider';  // always — slider inspector is slider-only
+  if (!editBtn.outputs) editBtn.outputs = [];
 }
 
 function onFontAutoChange() {
